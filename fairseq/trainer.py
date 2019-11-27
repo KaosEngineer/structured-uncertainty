@@ -165,7 +165,7 @@ class Trainer(object):
         except Exception:
             print('Checkpoint NOT save to snapshots!')
             pass
-        
+
     def load_checkpoint(
         self,
         filename,
