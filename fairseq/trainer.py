@@ -158,7 +158,14 @@ class Trainer(object):
                 self.optimizer, self.lr_scheduler, self.get_num_updates(),
                 self._optim_history, extra_state,
             )
-
+        try:
+            import nirvana_dl.snapshot as snap
+            snap.dump_snapshot()
+            print('Checkpoint saved to snapshots.')
+        except Exception:
+            print('Checkpoint NOT save to snapshots!')
+            pass
+        
     def load_checkpoint(
         self,
         filename,
