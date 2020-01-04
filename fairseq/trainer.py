@@ -7,16 +7,16 @@
 Train a network across multiple GPUs.
 """
 
-from collections import OrderedDict
 import contextlib
-from itertools import chain
 import math
 import os
 import sys
+from collections import OrderedDict
+from itertools import chain
 
 import torch
-
 from fairseq import checkpoint_utils, distributed_utils, models, optim, utils
+from fairseq.file_io import PathManager
 from fairseq.meters import AverageMeter, StopwatchMeter, TimeMeter
 from fairseq.optim import lr_scheduler
 
@@ -66,21 +66,21 @@ class Trainer(object):
 
     def init_meters(self, args):
         self.meters = OrderedDict()
-        self.meters['train_loss'] = AverageMeter()
-        self.meters['train_nll_loss'] = AverageMeter()
-        self.meters['valid_loss'] = AverageMeter()
-        self.meters['valid_nll_loss'] = AverageMeter()
-        self.meters['wps'] = TimeMeter()       # words per second
-        self.meters['ups'] = TimeMeter()       # updates per second
-        self.meters['wpb'] = AverageMeter()    # words per batch
-        self.meters['bsz'] = AverageMeter()    # sentences per batch
-        self.meters['gnorm'] = AverageMeter()  # gradient norm
-        self.meters['clip'] = AverageMeter()   # % of updates clipped
-        self.meters['oom'] = AverageMeter()    # out of memory
+        self.meters["train_loss"] = AverageMeter()
+        self.meters["train_nll_loss"] = AverageMeter()
+        self.meters["valid_loss"] = AverageMeter()
+        self.meters["valid_nll_loss"] = AverageMeter()
+        self.meters["wps"] = TimeMeter()  # words per second
+        self.meters["ups"] = TimeMeter()  # updates per second
+        self.meters["wpb"] = AverageMeter()  # words per batch
+        self.meters["bsz"] = AverageMeter()  # sentences per batch
+        self.meters["gnorm"] = AverageMeter()  # gradient norm
+        self.meters["clip"] = AverageMeter()  # % of updates clipped
+        self.meters["oom"] = AverageMeter()  # out of memory
         if args.fp16:
-            self.meters['loss_scale'] = AverageMeter()  # dynamic loss scale
-        self.meters['wall'] = TimeMeter()      # wall time in seconds
-        self.meters['train_wall'] = StopwatchMeter()  # train wall time in seconds
+            self.meters["loss_scale"] = AverageMeter()  # dynamic loss scale
+        self.meters["wall"] = TimeMeter()  # wall time in seconds
+        self.meters["train_wall"] = StopwatchMeter()  # train wall time in seconds
 
     @property
     def criterion(self):
@@ -102,7 +102,7 @@ class Trainer(object):
         if self._wrapped_model is None:
             if self.args.distributed_world_size > 1 and not self.args.use_bmuf:
                 self._wrapped_model = models.DistributedFairseqModel(
-                    self.args, self._model,
+                    self.args, self._model
                 )
             else:
                 self._wrapped_model = self._model
@@ -130,15 +130,19 @@ class Trainer(object):
 
         if self.args.fp16:
             if self.cuda and torch.cuda.get_device_capability(0)[0] < 7:
-                print('| WARNING: your device does NOT support faster training with --fp16, '
-                      'please switch to FP32 which is likely to be faster')
+                print(
+                    "| WARNING: your device does NOT support faster training with --fp16, "
+                    "please switch to FP32 which is likely to be faster"
+                )
             if self.args.memory_efficient_fp16:
-                self._optimizer = optim.MemoryEfficientFP16Optimizer.build_optimizer(self.args, params)
+                self._optimizer = optim.MemoryEfficientFP16Optimizer.build_optimizer(
+                    self.args, params
+                )
             else:
                 self._optimizer = optim.FP16Optimizer.build_optimizer(self.args, params)
         else:
             if self.cuda and torch.cuda.get_device_capability(0)[0] >= 7:
-                print('| NOTICE: your device may support faster training with --fp16')
+                print("| NOTICE: your device may support faster training with --fp16")
             self._optimizer = optim.build_optimizer(self.args, params)
 
         if self.args.use_bmuf:
@@ -152,11 +156,17 @@ class Trainer(object):
     def save_checkpoint(self, filename, extra_state):
         """Save all training state in a checkpoint file."""
         if distributed_utils.is_master(self.args):  # only save one checkpoint
-            extra_state['train_meters'] = self.meters
+            extra_state["train_meters"] = self.meters
             checkpoint_utils.save_state(
-                filename, self.args, self.get_model().state_dict(), self.get_criterion(),
-                self.optimizer, self.lr_scheduler, self.get_num_updates(),
-                self._optim_history, extra_state,
+                filename,
+                self.args,
+                self.get_model().state_dict(),
+                self.get_criterion(),
+                self.optimizer,
+                self.lr_scheduler,
+                self.get_num_updates(),
+                self._optim_history,
+                extra_state,
             )
         try:
             import nirvana_dl.snapshot as snap
@@ -177,29 +187,28 @@ class Trainer(object):
         """Load all training state from a checkpoint file."""
         extra_state, self._optim_history, last_optim_state = None, [], None
 
-        try:
-            from fairseq.fb_pathmgr import fb_pathmgr
-            bexists = fb_pathmgr.isfile(filename)
-        except (ModuleNotFoundError, ImportError):
-            bexists = os.path.exists(filename)
-
+        bexists = PathManager.isfile(filename)
         if bexists:
             state = checkpoint_utils.load_checkpoint_to_cpu(filename)
 
             # load model parameters
             try:
-                self.get_model().load_state_dict(state['model'], strict=True, args=self.args)
+                self.get_model().load_state_dict(
+                    state["model"], strict=True, args=self.args
+                )
                 if utils.has_parameters(self.get_criterion()):
-                    self.get_criterion().load_state_dict(state['criterion'], strict=True)
+                    self.get_criterion().load_state_dict(
+                        state["criterion"], strict=True
+                    )
             except Exception:
                 raise Exception(
-                    'Cannot load model parameters from checkpoint {}; '
-                    'please ensure that the architectures match.'.format(filename)
+                    "Cannot load model parameters from checkpoint {}; "
+                    "please ensure that the architectures match.".format(filename)
                 )
 
-            extra_state = state['extra_state']
-            self._optim_history = state['optimizer_history']
-            last_optim_state = state.get('last_optimizer_state', None)
+            extra_state = state["extra_state"]
+            self._optim_history = state["optimizer_history"]
+            last_optim_state = state.get("last_optimizer_state", None)
 
         if last_optim_state is not None and not reset_optimizer:
             # rebuild optimizer after loading model, since params may have changed
@@ -207,41 +216,53 @@ class Trainer(object):
 
             # only reload optimizer and lr_scheduler if they match
             last_optim = self._optim_history[-1]
-            assert last_optim['criterion_name'] == self.get_criterion().__class__.__name__, \
-                'Criterion does not match; please reset the optimizer (--reset-optimizer).'
-            assert last_optim['optimizer_name'] == self.optimizer.__class__.__name__, \
-                'Optimizer does not match; please reset the optimizer (--reset-optimizer).'
+            assert (
+                last_optim["criterion_name"] == self.get_criterion().__class__.__name__
+            ), "Criterion does not match; please reset the optimizer (--reset-optimizer)."
+            assert (
+                last_optim["optimizer_name"] == self.optimizer.__class__.__name__
+            ), "Optimizer does not match; please reset the optimizer (--reset-optimizer)."
 
             if not reset_lr_scheduler:
-                self.lr_scheduler.load_state_dict(last_optim['lr_scheduler_state'])
+                self.lr_scheduler.load_state_dict(last_optim["lr_scheduler_state"])
             self.optimizer.load_state_dict(last_optim_state, optimizer_overrides)
 
-            self.set_num_updates(last_optim['num_updates'])
+            self.set_num_updates(last_optim["num_updates"])
 
         if extra_state is not None:
-            epoch = extra_state['train_iterator']['epoch']
-            print('| loaded checkpoint {} (epoch {} @ {} updates)'.format(
-                filename, epoch, self.get_num_updates()))
+            epoch = extra_state["train_iterator"]["epoch"]
+            print(
+                "| loaded checkpoint {} (epoch {} @ {} updates)".format(
+                    filename, epoch, self.get_num_updates()
+                )
+            )
 
             self.lr_step(epoch)
 
-            if 'train_meters' in extra_state and not reset_meters:
-                self.meters.update(extra_state['train_meters'])
-                del extra_state['train_meters']
+            if "train_meters" in extra_state and not reset_meters:
+                self.meters.update(extra_state["train_meters"])
+                del extra_state["train_meters"]
 
                 # reset TimeMeters, since their start times don't make sense anymore
                 for meter in self.meters.values():
                     if isinstance(meter, TimeMeter):
                         meter.reset()
         else:
-            print('| no existing checkpoint found {}'.format(filename))
+            print("| no existing checkpoint found {}".format(filename))
 
         return extra_state
 
-    def get_train_iterator(self, epoch, combine=True, load_dataset=True, data_selector=None, shard_batch_itr=True):
+    def get_train_iterator(
+        self,
+        epoch,
+        combine=True,
+        load_dataset=True,
+        data_selector=None,
+        shard_batch_itr=True,
+    ):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         if load_dataset:
-            print('| loading train data for epoch {}'.format(epoch))
+            print("| loading train data for epoch {}".format(epoch))
             self.task.load_dataset(
                 self.args.train_subset,
                 epoch=epoch,
@@ -255,6 +276,7 @@ class Trainer(object):
             max_positions=utils.resolve_max_positions(
                 self.task.max_positions(),
                 self.model.max_positions(),
+                self.args.max_tokens,
             ),
             ignore_invalid_inputs=True,
             required_batch_size_multiple=self.args.required_batch_size_multiple,
@@ -276,7 +298,7 @@ class Trainer(object):
         self.zero_grad()
 
         if not dummy_batch:
-            self.meters['train_wall'].start()
+            self.meters["train_wall"].start()
 
         # forward and backward pass
         logging_outputs, sample_sizes, ooms = [], [], 0
@@ -298,7 +320,7 @@ class Trainer(object):
                 """
                 if (
                     self.args.distributed_world_size > 1
-                    and hasattr(self.model, 'no_sync')
+                    and hasattr(self.model, "no_sync")
                     and i < len(samples) - 1
                 ):
                     return self.model.no_sync()
@@ -309,8 +331,7 @@ class Trainer(object):
                 with maybe_no_sync():
                     # forward and backward
                     loss, sample_size, logging_output = self.task.train_step(
-                        sample, self.model, self.criterion, self.optimizer,
-                        ignore_grad
+                        sample, self.model, self.criterion, self.optimizer, ignore_grad
                     )
 
                 if not ignore_grad:
@@ -319,17 +340,21 @@ class Trainer(object):
 
                     if self.fast_stat_sync:
                         self._all_reduce_list[0] += sample_size
-                        self._all_reduce_list[1] += logging_output.get('nsentences', 0.0)
-                        self._all_reduce_list[2] += logging_output.get('loss', 0.0)
-                        self._all_reduce_list[3] += logging_output.get('nll_loss', 0.0)
-                        self._all_reduce_list[4] += logging_output.get('ntokens', 0.0)
+                        self._all_reduce_list[1] += logging_output.get(
+                            "nsentences", 0.0
+                        )
+                        self._all_reduce_list[2] += logging_output.get("loss", 0.0)
+                        self._all_reduce_list[3] += logging_output.get("nll_loss", 0.0)
+                        self._all_reduce_list[4] += logging_output.get("ntokens", 0.0)
             except RuntimeError as e:
-                if 'out of memory' in str(e):
+                if "out of memory" in str(e):
                     self._log_oom(e)
                     if raise_oom:
                         raise e
-                    print("| WARNING: attempting to recover from OOM in forward/backward pass",
-                          file=sys.stderr)
+                    print(
+                        "| WARNING: attempting to recover from OOM in forward/backward pass",
+                        file=sys.stderr,
+                    )
                     ooms += 1
                     self.zero_grad()
                 else:
@@ -337,7 +362,6 @@ class Trainer(object):
 
             if self.fast_stat_sync:
                 self._all_reduce_list[5] += ooms
-
 
         if ooms > 0 and self._oom_batch is not None:
             self.handle_ooms(ooms)
@@ -354,39 +378,43 @@ class Trainer(object):
             # Normalize loss and nll_loss by "sample_size"
             # and convert to log base 2
             all_reduce_list_tensor[2:4].div_(
-                (
-                    all_reduce_list_tensor[0:1] *
-                    torch.log(torch.cuda.DoubleTensor([2]))
-                )
+                (all_reduce_list_tensor[0:1] * torch.log(torch.cuda.DoubleTensor([2])))
             )
             self._all_reduce_list = all_reduce_list_tensor.tolist()
             logging_output = {}
             [
                 sample_size,
-                logging_output['nsentences'],
-                logging_output['loss'],
-                logging_output['nll_loss'],
-                logging_output['ntokens'],
+                logging_output["nsentences"],
+                logging_output["loss"],
+                logging_output["nll_loss"],
+                logging_output["ntokens"],
                 ooms,
             ] = self._all_reduce_list
         elif self._sync_stats():
-            logging_outputs, sample_sizes, ooms, prev_norms = \
-                zip(*distributed_utils.all_gather_list(
+            logging_outputs, sample_sizes, ooms, prev_norms = zip(
+                *distributed_utils.all_gather_list(
                     [logging_outputs, sample_sizes, ooms, self._prev_grad_norm],
-                ))
+                    max_size=getattr(self.args, 'all_gather_list_size', 16384),
+                )
+            )
             logging_outputs = list(chain.from_iterable(logging_outputs))
             sample_sizes = list(chain.from_iterable(sample_sizes))
             ooms = sum(ooms)
 
             if not self.args.use_bmuf:
-                assert (
-                    all(norm == prev_norms[0] for norm in prev_norms)
-                    or all(math.isnan(norm) or math.isinf(norm) for norm in prev_norms)
-                ), 'Fatal error: gradients are inconsistent between workers'
+                norms = [norm for norm in prev_norms if norm is not None]
+                if not (
+                    all(norm == norms[0] for norm in norms)
+                    or all(math.isnan(norm) or math.isinf(norm) for norm in norms)
+                ):
+                    raise RuntimeError(
+                        "Fatal error: gradients are inconsistent between workers. "
+                        "Try --ddp-backend=no_c10d."
+                    )
 
-        self.meters['oom'].update(ooms, len(samples))
+        self.meters["oom"].update(ooms, len(samples))
         if ooms == self.args.distributed_world_size * len(samples):
-            print('| WARNING: OOM in all workers, skipping update')
+            print("| WARNING: OOM in all workers, skipping update")
             self.zero_grad()
             return None
 
@@ -397,16 +425,26 @@ class Trainer(object):
             )
             sample_size = self.task.grad_denom(sample_sizes, self.get_criterion())
 
-        if not all(k in logging_output for k in ['ntokens', 'nsentences']):
-            raise Exception((
-                'Please update the {}.aggregate_logging_outputs() method to '
-                'return ntokens and nsentences'
-            ).format(self.task.__class__.__name__))
+        if not all(k in logging_output for k in ["ntokens", "nsentences"]):
+            raise Exception(
+                (
+                    "Please update the {}.aggregate_logging_outputs() method to "
+                    "return ntokens and nsentences"
+                ).format(self.task.__class__.__name__)
+            )
 
         try:
             # normalize grads by sample size
             if sample_size > 0:
-                self.optimizer.multiply_grads(self.args.distributed_world_size / float(sample_size))
+                # In DDP: multiply gradients by #GPUs/#sample_size because
+                # gradients are accumulated and divided by #GPUs before.
+                # In BMUF: during non-sync gradients are divided by #sample_size
+                # whereas during sync (while calculating global model): sync accumulate
+                # gradients and divided by #GPUs and now multiply by #GPUs/#sample_size
+                if self._sync_stats():
+                    self.optimizer.multiply_grads(self.args.distributed_world_size / float(sample_size))
+                else:
+                    self.optimizer.multiply_grads(1 / float(sample_size))
 
             # clip grads
             grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
@@ -420,47 +458,57 @@ class Trainer(object):
             self.task.update_step(self._num_updates)
 
             # update meters
-            ntokens = logging_output.get('ntokens', 0)
-            nsentences = logging_output.get('nsentences', 0)
-            self.meters['wps'].update(ntokens)
-            self.meters['ups'].update(1.)
-            self.meters['wpb'].update(ntokens)
-            self.meters['bsz'].update(nsentences)
-            self.meters['gnorm'].update(grad_norm)
-            self.meters['clip'].update(
-                1. if grad_norm > self.args.clip_norm and self.args.clip_norm > 0 else 0.
+            ntokens = logging_output.get("ntokens", 0)
+            nsentences = logging_output.get("nsentences", 0)
+            self.meters["wps"].update(ntokens)
+            self.meters["ups"].update(1.0)
+            self.meters["wpb"].update(ntokens)
+            self.meters["bsz"].update(nsentences)
+            self.meters["gnorm"].update(grad_norm)
+            self.meters["clip"].update(
+                1.0
+                if grad_norm > self.args.clip_norm and self.args.clip_norm > 0
+                else 0.0
             )
-            self.meters['train_loss'].update(logging_output.get('loss', 0), sample_size)
-            if 'train_acc' in self.meters:
-                self.meters['train_acc'].update(
-                    logging_output.get('acc', 0), sample_size)
+            self.meters["train_loss"].update(logging_output.get("loss", 0), sample_size)
+            if "train_acc" in self.meters:
+                self.meters["train_acc"].update(
+                    logging_output.get("acc", 0), sample_size
+                )
 
-            if 'nll_loss' in logging_output:
-                self.meters['train_nll_loss'].update(logging_output.get('nll_loss', 0), ntokens)
+            if "nll_loss" in logging_output:
+                self.meters["train_nll_loss"].update(
+                    logging_output.get("nll_loss", 0), ntokens
+                )
 
             # clear CUDA cache to reduce memory fragmentation
-            if (self.args.empty_cache_freq > 0 and
-                    ((self.get_num_updates() + self.args.empty_cache_freq - 1) %
-                     self.args.empty_cache_freq) == 0 and
-                    torch.cuda.is_available() and
-                    not self.args.cpu):
+            if (
+                self.args.empty_cache_freq > 0
+                and (
+                    (self.get_num_updates() + self.args.empty_cache_freq - 1)
+                    % self.args.empty_cache_freq
+                )
+                == 0
+                and torch.cuda.is_available()
+                and not self.args.cpu
+            ):
                 torch.cuda.empty_cache()
         except OverflowError as e:
-            print('| WARNING: overflow detected, ' + str(e))
+            print("| WARNING: overflow detected, " + str(e))
             self.zero_grad()
             logging_output = None
         except RuntimeError as e:
-            if 'out of memory' in str(e):
+            if "out of memory" in str(e):
                 self._log_oom(e)
-                print('| ERROR: OOM during optimization, irrecoverable')
+                print("| ERROR: OOM during optimization, irrecoverable")
             raise e
 
         if self.args.fp16:
-            self.meters['loss_scale'].reset()
-            self.meters['loss_scale'].update(self.optimizer.scaler.loss_scale)
+            self.meters["loss_scale"].reset()
+            self.meters["loss_scale"].update(self.optimizer.scaler.loss_scale)
 
         self.clear_buffered_stats()
-        self.meters['train_wall'].stop()
+        self.meters["train_wall"].stop()
 
         return logging_output
 
@@ -482,10 +530,12 @@ class Trainer(object):
                     sample, self.model, self.criterion
                 )
             except RuntimeError as e:
-                if 'out of memory' in str(e):
+                if "out of memory" in str(e):
                     self._log_oom(e)
                     if not raise_oom:
-                        print('| WARNING: ran out of memory in validation step, retrying batch')
+                        print(
+                            "| WARNING: ran out of memory in validation step, retrying batch"
+                        )
                         for p in self.model.parameters():
                             if p.grad is not None:
                                 p.grad = None  # free some memory
@@ -499,9 +549,12 @@ class Trainer(object):
 
         # gather logging outputs from all replicas
         if self.args.distributed_world_size > 1:
-            logging_output, sample_size = zip(*distributed_utils.all_gather_list(
-                [logging_output, sample_size],
-            ))
+            logging_output, sample_size = zip(
+                *distributed_utils.all_gather_list(
+                    [logging_output, sample_size],
+                    max_size=getattr(self.args, 'all_gather_list_size', 16384),
+                )
+            )
             logging_output = list(logging_output)
             sample_size = list(sample_size)
         else:
@@ -512,19 +565,18 @@ class Trainer(object):
         logging_output = self.task.aggregate_logging_outputs(
             logging_output, self.get_criterion()
         )
-        sample_size = self.task.grad_denom(
-            sample_size, self.get_criterion()
-        )
+        sample_size = self.task.grad_denom(sample_size, self.get_criterion())
 
         # update meters for validation
-        ntokens = logging_output.get('ntokens', 0)
-        self.meters['valid_loss'].update(logging_output.get('loss', 0), sample_size)
-        if 'valid_acc' in self.meters:
-            self.meters['valid_acc'].update(
-                logging_output.get('acc', 0), sample_size)
+        ntokens = logging_output.get("ntokens", 0)
+        self.meters["valid_loss"].update(logging_output.get("loss", 0), sample_size)
+        if "valid_acc" in self.meters:
+            self.meters["valid_acc"].update(logging_output.get("acc", 0), sample_size)
 
-        if 'nll_loss' in logging_output:
-            self.meters['valid_nll_loss'].update(logging_output.get('nll_loss', 0), ntokens)
+        if "nll_loss" in logging_output:
+            self.meters["valid_nll_loss"].update(
+                logging_output.get("nll_loss", 0), ntokens
+            )
 
         return logging_output
 
@@ -611,19 +663,19 @@ class Trainer(object):
             torch.cuda.manual_seed(seed)
 
     def _sync_stats(self):
-        return (
-            self.args.distributed_world_size > 1 and
-            (
-                (not self.args.use_bmuf) or
-                (
-                    self.args.use_bmuf
-                    and (self.get_num_updates() + 1) % self.args.global_sync_iter == 0
-                )
+        # Return True if it's using multiple GPUs and DDP or multiple GPUs with
+        # BMUF and it's a bmuf sync with warmup iterations completed before.
+        return self.args.distributed_world_size > 1 and (
+            (not self.args.use_bmuf)
+            or (
+                self.args.use_bmuf
+                and (self.get_num_updates() + 1) % self.args.global_sync_iter == 0
+                and (self.get_num_updates() + 1) > self.args.warmup_iterations
             )
         )
 
     def _log_oom(self, exc):
-        msg = '| OOM: Ran out of memory with exception: {}'.format(exc)
+        msg = "| OOM: Ran out of memory with exception: {}".format(exc)
         # TODO: print should really go to logger, this print goes
         # to stderr, which is buffered, which in many cases is not
         # printed out if another exception happens.
@@ -631,6 +683,5 @@ class Trainer(object):
         print(msg, file=sys.stderr)
         if torch.cuda.is_available() and hasattr(torch.cuda, "memory_summary"):
             for device_idx in range(torch.cuda.device_count()):
-                print(torch.cuda.memory_summary(device=device_idx),
-                      file=sys.stderr)
+                print(torch.cuda.memory_summary(device=device_idx), file=sys.stderr)
         sys.stderr.flush()

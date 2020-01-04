@@ -41,6 +41,7 @@ class TestTranslation(unittest.TestCase):
                 train_translation_model(data_dir, 'fconv_iwslt_de_en', ['--dataset-impl', 'raw'])
                 generate_main(data_dir, ['--dataset-impl', 'raw'])
 
+    @unittest.skipIf(not torch.cuda.is_available(), 'test requires a GPU')
     def test_fp16(self):
         with contextlib.redirect_stdout(StringIO()):
             with tempfile.TemporaryDirectory('test_fp16') as data_dir:
@@ -49,6 +50,7 @@ class TestTranslation(unittest.TestCase):
                 train_translation_model(data_dir, 'fconv_iwslt_de_en', ['--fp16'])
                 generate_main(data_dir)
 
+    @unittest.skipIf(not torch.cuda.is_available(), 'test requires a GPU')
     def test_memory_efficient_fp16(self):
         with contextlib.redirect_stdout(StringIO()):
             with tempfile.TemporaryDirectory('test_memory_efficient_fp16') as data_dir:
@@ -154,6 +156,42 @@ class TestTranslation(unittest.TestCase):
                 ], run_validation=True)
                 generate_main(data_dir)
 
+    def test_multilingual_transformer(self):
+        # test with all combinations of encoder/decoder lang tokens
+        encoder_langtok_flags = [[], ['--encoder-langtok', 'src'], ['--encoder-langtok', 'tgt']]
+        decoder_langtok_flags = [[], ['--decoder-langtok']]
+        with contextlib.redirect_stdout(StringIO()):
+            for i in range(len(encoder_langtok_flags)):
+                for j in range(len(decoder_langtok_flags)):
+                    enc_ltok_flag = encoder_langtok_flags[i]
+                    dec_ltok_flag = decoder_langtok_flags[j]
+                    with tempfile.TemporaryDirectory(f'test_multilingual_transformer_{i}_{j}') as data_dir:
+                        create_dummy_data(data_dir)
+                        preprocess_translation_data(data_dir)
+                        train_translation_model(
+                            data_dir,
+                            arch='multilingual_transformer',
+                            task='multilingual_translation',
+                            extra_flags=[
+                                '--encoder-layers', '2',
+                                '--decoder-layers', '2',
+                                '--encoder-embed-dim', '8',
+                                '--decoder-embed-dim', '8',
+                            ] + enc_ltok_flag + dec_ltok_flag,
+                            lang_flags=['--lang-pairs', 'in-out,out-in'],
+                            run_validation=True,
+                            extra_valid_flags=enc_ltok_flag + dec_ltok_flag,
+                        )
+                        generate_main(
+                            data_dir,
+                            extra_flags=[
+                                '--task', 'multilingual_translation',
+                                '--lang-pairs', 'in-out,out-in',
+                                '--source-lang', 'in',
+                                '--target-lang', 'out',
+                            ] + enc_ltok_flag + dec_ltok_flag,
+                        )
+
     def test_transformer_cross_self_attention(self):
         with contextlib.redirect_stdout(StringIO()):
             with tempfile.TemporaryDirectory('test_transformer_cross_self_attention') as data_dir:
@@ -244,10 +282,30 @@ class TestTranslation(unittest.TestCase):
                 ], task='translation_lev')
                 generate_main(data_dir, [
                     '--task', 'translation_lev',
-                    '--iter-decode-max-iter', '9',
+                    '--iter-decode-max-iter', '0',
                     '--iter-decode-eos-penalty', '0',
                     '--print-step',
                 ])
+
+    # def test_nat_crf_transformer(self):
+    #     with contextlib.redirect_stdout(StringIO()):
+    #         with tempfile.TemporaryDirectory('test_nat_crf_transformer') as data_dir:
+    #             create_dummy_data(data_dir)
+    #             preprocess_translation_data(data_dir, ['--joined-dictionary'])
+    #             train_translation_model(data_dir, 'nacrf_transformer', [
+    #                 '--apply-bert-init', '--criterion',
+    #                 'nat_loss', '--noise', 'full_mask', '--pred-length-offset',
+    #                 '--length-loss-factor', '0.1',
+    #                 '--word-ins-loss-factor', '0.5',
+    #                 '--crf-lowrank-approx', '1',
+    #                 '--crf-beam-approx', '1'
+    #             ], task='translation_lev')
+    #             generate_main(data_dir, [
+    #                 '--task', 'translation_lev',
+    #                 '--iter-decode-max-iter', '0',
+    #                 '--iter-decode-eos-penalty', '0',
+    #                 '--print-step',
+    #             ])
 
     def test_iterative_nonautoregressive_transformer(self):
         with contextlib.redirect_stdout(StringIO()):
@@ -382,6 +440,21 @@ class TestLanguageModeling(unittest.TestCase):
                 preprocess_lm_data(data_dir)
                 train_language_model(
                     data_dir, 'transformer_lm', ['--add-bos-token'], run_validation=True,
+                )
+                eval_lm_main(data_dir)
+                generate_main(data_dir, [
+                    '--task', 'language_modeling',
+                    '--sample-break-mode', 'eos',
+                    '--tokens-per-sample', '500',
+                ])
+
+    def test_lightconv_lm(self):
+        with contextlib.redirect_stdout(StringIO()):
+            with tempfile.TemporaryDirectory('test_lightconv_lm') as data_dir:
+                create_dummy_data(data_dir)
+                preprocess_lm_data(data_dir)
+                train_language_model(
+                    data_dir, 'lightconv_lm', ['--add-bos-token'], run_validation=True,
                 )
                 eval_lm_main(data_dir)
                 generate_main(data_dir, [
@@ -549,8 +622,7 @@ class TestCommonOptions(unittest.TestCase):
                     generate_main(data_dir)
 
 
-def create_dummy_data(data_dir, num_examples=1000, maxlen=20, alignment=False):
-
+def create_dummy_data(data_dir, num_examples=100, maxlen=20, alignment=False):
     def _create_dummy_data(filename):
         data = torch.rand(num_examples * maxlen)
         data = 97 + torch.floor(26 * data).int()
@@ -605,7 +677,13 @@ def preprocess_translation_data(data_dir, extra_flags=None):
     preprocess.main(preprocess_args)
 
 
-def train_translation_model(data_dir, arch, extra_flags=None, task='translation', run_validation=False):
+def train_translation_model(data_dir, arch, extra_flags=None, task='translation', run_validation=False,
+                            lang_flags=None, extra_valid_flags=None):
+    if lang_flags is None:
+        lang_flags = [
+            '--source-lang', 'in',
+            '--target-lang', 'out',
+        ]
     train_parser = options.get_training_parser()
     train_args = options.parse_args_and_arch(
         train_parser,
@@ -619,9 +697,8 @@ def train_translation_model(data_dir, arch, extra_flags=None, task='translation'
             '--max-epoch', '1',
             '--no-progress-bar',
             '--distributed-world-size', '1',
-            '--source-lang', 'in',
-            '--target-lang', 'out',
-        ] + (extra_flags or []),
+            '--num-workers', 0,
+        ] + lang_flags + (extra_flags or []),
     )
     train.main(train_args)
 
@@ -637,7 +714,7 @@ def train_translation_model(data_dir, arch, extra_flags=None, task='translation'
                 '--valid-subset', 'valid',
                 '--max-tokens', '500',
                 '--no-progress-bar',
-            ]
+            ] + lang_flags + (extra_valid_flags or [])
         )
         validate.main(validate_args)
 

@@ -32,8 +32,6 @@ class DenoisingTask(FairseqTask):
         parser.add_argument('--tokens-per-sample', default=512, type=int,
                             help='max number of total tokens over all segments'
                                  ' per sample for dataset')
-        parser.add_argument('--raw-text', default=False, action='store_true',
-                            help='load raw text dataset')
         parser.add_argument(
             '--sample-break-mode', default="complete_doc", type=str,
             help='mode for breaking sentence',
@@ -68,12 +66,20 @@ class DenoisingTask(FairseqTask):
         )
         parser.add_argument(
             '--mask-length', default="subword", type=str,
-            choices=['subword', 'word', 'span-possion'],
+            choices=['subword', 'word', 'span-poisson'],
             help='mask length to choose'
         )
         parser.add_argument(
             '--replace-length', default=-1, type=int,
             help='when masking N tokens, replace with 0, 1, or N tokens (use -1 for N)'
+        )
+        parser.add_argument(
+            '--max-source-positions', default=1024, type=int, metavar='N',
+            help='max number of tokens in the source sequence'
+        )
+        parser.add_argument(
+            '--max-target-positions', default=1024, type=int, metavar='N',
+            help='max number of tokens in the target sequence'
         )
 
     def __init__(self, args, dictionary):
@@ -94,14 +100,14 @@ class DenoisingTask(FairseqTask):
             args.shuffle_instance = False
         return cls(args, dictionary)
 
-    def load_dataset(self, split, epoch=0, combine=False):
+    def load_dataset(self, split, epoch=0, combine=False, **kwargs):
         """Load a given dataset split.
 
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
 
-        paths = self.args.data.split(':')
+        paths = self.args.data.split(os.pathsep)
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
         split_path = os.path.join(data_path, split)

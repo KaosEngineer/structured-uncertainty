@@ -40,12 +40,13 @@ def make_batches(lines, args, task, max_positions, encode_fn):
         ).long()
         for src_str in lines
     ]
-    lengths = torch.LongTensor([t.numel() for t in tokens])
+    lengths = [t.numel() for t in tokens]
     itr = task.get_batch_iterator(
         dataset=task.build_dataset_for_inference(tokens, lengths),
         max_tokens=args.max_tokens,
         max_sentences=args.max_sentences,
         max_positions=max_positions,
+        ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test
     ).next_epoch_itr(shuffle=False)
     for batch in itr:
         yield Batch(

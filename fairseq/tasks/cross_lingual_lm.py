@@ -46,10 +46,6 @@ class CrossLingualLMTask(FairseqTask):
         parser.add_argument('--monolingual-langs', default='en', type=str,
                             help='comma separated list of languages for which we'
                                  ' want to train XLM on')
-        parser.add_argument('--raw-text', default=False, action='store_true',
-                            help='load raw text dataset')
-        parser.add_argument('--lazy-load', action='store_true',
-                            help='load the dataset lazily')
         parser.add_argument('--shuffle', action='store_true',
                             help='shuffle each monolingual dataset while'
                             ' training')
@@ -104,7 +100,7 @@ class CrossLingualLMTask(FairseqTask):
     def _load_single_lang_dataset(self, split, epoch):
         loaded_datasets = []
 
-        paths = self.args.data.split(':')
+        paths = self.args.data.split(os.pathsep)
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
 
@@ -170,5 +166,5 @@ class CrossLingualLMTask(FairseqTask):
 
         self.datasets[split] = MultiCorpusSampledDataset(dataset_map)
         print('| {} {} {} examples'.format(
-            self.args.data.split(':')[epoch], split, len(self.datasets[split]))
+            self.args.data.split(os.pathsep)[epoch], split, len(self.datasets[split]))
         )

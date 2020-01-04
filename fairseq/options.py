@@ -193,6 +193,8 @@ def get_parser(desc, default_task='translation'):
                         help='path to a python module containing custom extensions (tasks and/or architectures)')
     parser.add_argument('--empty-cache-freq', default=0, type=int,
                         help='how often to clear the PyTorch CUDA cache (0 to disable)')
+    parser.add_argument('--all-gather-list-size', default=16384, type=int,
+                        help='number of bytes reserved for gathering stats from workers')
 
     from fairseq.registry import REGISTRIES
     for registry_name, REGISTRY in REGISTRIES.items():
@@ -408,6 +410,10 @@ def add_checkpoint_args(parser):
                        help='metric to use for saving "best" checkpoints')
     group.add_argument('--maximize-best-checkpoint-metric', action='store_true',
                        help='select the largest metric value for saving "best" checkpoints')
+    group.add_argument('--patience', type=int, default=-1, metavar='N',
+                       help=('early stop training if valid performance doesn\'t '
+                             'improve for N consecutive validation runs; note '
+                             'that this is influenced by --validate-interval'))
     # fmt: on
     return group
 
@@ -506,6 +512,10 @@ def add_generation_args(parser):
                        help='maximum iterations for iterative refinement.')
     group.add_argument('--iter-decode-force-max-iter', action='store_true',
                        help='if set, run exact the maximum number of iterations without early stop')
+    group.add_argument('--iter-decode-with-beam', default=1, type=int, metavar='N',
+                       help='if > 1, model will generate translations varying by the lengths.')
+    group.add_argument('--iter-decode-with-external-reranker', action='store_true',
+                       help='if set, the last checkpoint are assumed to be a reranker to rescore the translations'),
     group.add_argument('--retain-iter-history', action='store_true',
                        help='if set, decoding returns the whole history of iterative refinement')
 
