@@ -22,6 +22,8 @@ URLS=(
     "http://statmt.org/wmt14/training-parallel-nc-v9.tgz"
     "http://statmt.org/wmt10/training-giga-fren.tar"
     "http://statmt.org/wmt14/test-full.tgz"
+    "http://www.statmt.org/wmt14/medical-task/khresmoi-summary-test-set.tgz"
+    "http://www.statmt.org/wmt14/medical-task/khresmoi-query-test-set.tgz"
 )
 FILES=(
     "training-parallel-europarl-v7.tgz"
@@ -30,6 +32,8 @@ FILES=(
     "training-parallel-nc-v9.tgz"
     "training-giga-fren.tar"
     "test-full.tgz"
+    "khresmoi-summary-test-set.tgz"
+    "khresmoi-query-test-set.tgz"
 )
 CORPORA=(
     "training/europarl-v7.fr-en"
@@ -103,6 +107,15 @@ for l in $src $tgt; do
         sed -e "s/\’/\'/g" | \
     perl $TOKENIZER -threads 8 -a -l $l > $tmp/test.$l
     echo ""
+    for d in dev test; do
+      grep '<seg id' $orig/khresmoi-summary-test-set/khresmoi-summary-${d}.${l}.sgm | \
+          sed -e 's/<seg id="[0-9]*">\s*//g' | \
+          sed -e 's/\s*<\/seg>\s*//g' | \
+          sed -e "s/\’/\'/g" | \
+      perl $TOKENIZER -threads 8 -a -l $l > $tmp/bio-ks-${d}.$l
+      echo ""
+    done
+    cat $tmp/bio-ks-dev.$l $tmp/bio-ks-test.$l > $tmp/bio-ks.$l
 done
 
 echo "splitting train and valid..."
@@ -122,7 +135,7 @@ echo "learn_bpe.py on ${TRAIN}..."
 python $BPEROOT/learn_bpe.py -s $BPE_TOKENS < $TRAIN > $BPE_CODE
 
 for L in $src $tgt; do
-    for f in train.$L valid.$L test.$L; do
+    for f in train.$L valid.$L test.$L bio-ks-dev.$L bio-kl-test.$L bio-ks.$L; do
         echo "apply_bpe.py to ${f}..."
         python $BPEROOT/apply_bpe.py -c $BPE_CODE < $tmp/$f > $tmp/bpe.$f
     done
@@ -133,4 +146,7 @@ perl $CLEAN -ratio 1.5 $tmp/bpe.valid $src $tgt $prep/valid 1 250
 
 for L in $src $tgt; do
     cp $tmp/bpe.test.$L $prep/test.$L
+    cp $tmp/bpe.bio-ks-dev.$L $prep/bio-ks-dev.$L
+    cp $tmp/bpe.bio-ks-test.$L $prep/bio-ks-test.$L
+    cp $tmp/bpe.bio-ks.$L $prep/bio-ks.$L
 done
