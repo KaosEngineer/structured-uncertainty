@@ -121,7 +121,7 @@ for l in $src $tgt; do
       perl $TOKENIZER -threads 24 -a -l $l > $tmp/bio-ks-${d}.$l
       echo ""
     done
-    cat $tmp/bio-ks-dev.$l $tmp/bio-ks-test.$l > $tmp/bio-ks.$l
+    cat $tmp/bio-ks-dev.$l $tmp/bio-ks-tst.$l > $tmp/bio-ks.$l
 done
 
 echo "splitting train and valid..."
