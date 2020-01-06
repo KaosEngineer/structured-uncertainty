@@ -145,7 +145,7 @@ echo "learn_bpe.py on ${TRAIN}..."
 python $BPEROOT/learn_bpe.py -s $BPE_TOKENS < $TRAIN > $BPE_CODE
 
 for L in $src $tgt; do
-    for f in train.$L valid.$L test.$L bio-ks-dev.$L bio-kl-test.$L bio-ks.$L; do
+    for f in train.$L valid.$L test.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L; do
         echo "apply_bpe.py to ${f}..."
         python $BPEROOT/apply_bpe.py -c $BPE_CODE < $tmp/$f > $tmp/bpe.$f
     done
