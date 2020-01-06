@@ -31,30 +31,30 @@ if [ ! -d "$fairseq_root" ]; then
 fi
 
 echo "Data Download"
-#for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
-#    url=$base_url/$part.tar.gz
-#    if ! wget -P $download_dir $url; then
-#        echo "$0: wget failed for $url"
-#        exit 1
-#    fi
-#    if ! tar -C $download_dir -xvzf $download_dir/$part.tar.gz; then
-#        echo "$0: error un-tarring archive $download_dir/$part.tar.gz"
-#        exit 1
-#    fi
-#done
+for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
+    url=$base_url/$part.tar.gz
+    if ! wget -P $download_dir $url; then
+        echo "$0: wget failed for $url"
+        exit 1
+    fi
+    if ! tar -C $download_dir -xvzf $download_dir/$part.tar.gz; then
+        echo "$0: error un-tarring archive $download_dir/$part.tar.gz"
+        exit 1
+    fi
+done
 
 echo "Merge all train packs into one"
-#mkdir -p ${download_dir}/LibriSpeech/${train_dir}/
-#for part in train-clean-100 train-clean-360 train-other-500; do
-#    mv ${download_dir}/LibriSpeech/${part}/* $download_dir/LibriSpeech/${train_dir}/
-#done
+mkdir -p ${download_dir}/LibriSpeech/${train_dir}/
+for part in train-clean-100 train-clean-360 train-other-500; do
+    mv ${download_dir}/LibriSpeech/${part}/* $download_dir/LibriSpeech/${train_dir}/
+done
 echo "Merge train text"
-#find ${download_dir}/LibriSpeech/${train_dir}/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/${train_dir}/text
+find ${download_dir}/LibriSpeech/${train_dir}/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/${train_dir}/text
 
 # Use combined dev-clean and dev-other as validation set
-#find ${download_dir}/LibriSpeech/dev-clean/ ${download_dir}/LibriSpeech/dev-other/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/valid_text
-#find ${download_dir}/LibriSpeech/test-clean/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/test-clean/text
-#find ${download_dir}/LibriSpeech/test-other/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/test-other/text
+find ${download_dir}/LibriSpeech/dev-clean/ ${download_dir}/LibriSpeech/dev-other/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/valid_text
+find ${download_dir}/LibriSpeech/test-clean/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/test-clean/text
+find ${download_dir}/LibriSpeech/test-other/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/test-other/text
 
 
 dict=data/lang_char/${train_dir}_${bpemode}${nbpe}_units.txt

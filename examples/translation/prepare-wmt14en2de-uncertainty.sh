@@ -125,7 +125,6 @@ for l in $src $tgt; do
         sed -e "s/\’/\'/g" | \
     perl $TOKENIZER -threads 24 -a -l $l > $tmp/bio-ks-test.$l
     echo ""
-    done
     cat $tmp/bio-ks-dev.$l $tmp/bio-ks-test.$l > $tmp/bio-ks.$l
 done
 
