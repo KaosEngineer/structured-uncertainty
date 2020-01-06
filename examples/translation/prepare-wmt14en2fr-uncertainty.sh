@@ -90,7 +90,7 @@ for l in $src $tgt; do
         cat $orig/$f.$l | \
             perl $NORM_PUNC $l | \
             perl $REM_NON_PRINT_CHAR | \
-            perl $TOKENIZER -threads 8 -a -l $l >> $tmp/train.tags.$lang.tok.$l
+            perl $TOKENIZER -threads 24 -a -l $l >> $tmp/train.tags.$lang.tok.$l
     done
 done
 
@@ -105,14 +105,14 @@ for l in $src $tgt; do
         sed -e 's/<seg id="[0-9]*">\s*//g' | \
         sed -e 's/\s*<\/seg>\s*//g' | \
         sed -e "s/\’/\'/g" | \
-    perl $TOKENIZER -threads 8 -a -l $l > $tmp/test.$l
+    perl $TOKENIZER -threads 24 -a -l $l > $tmp/test.$l
     echo ""
-    for d in dev test; do
+    for d in dev tst; do
       grep '<seg id' $orig/khresmoi-summary-test-set/khresmoi-summary-${d}.${l}.sgm | \
           sed -e 's/<seg id="[0-9]*">\s*//g' | \
           sed -e 's/\s*<\/seg>\s*//g' | \
           sed -e "s/\’/\'/g" | \
-      perl $TOKENIZER -threads 8 -a -l $l > $tmp/bio-ks-${d}.$l
+      perl $TOKENIZER -threads 24 -a -l $l > $tmp/bio-ks-${d}.$l
       echo ""
     done
     cat $tmp/bio-ks-dev.$l $tmp/bio-ks-test.$l > $tmp/bio-ks.$l
@@ -135,7 +135,7 @@ echo "learn_bpe.py on ${TRAIN}..."
 python $BPEROOT/learn_bpe.py -s $BPE_TOKENS < $TRAIN > $BPE_CODE
 
 for L in $src $tgt; do
-    for f in train.$L valid.$L test.$L bio-ks-dev.$L bio-kl-test.$L bio-ks.$L; do
+    for f in train.$L valid.$L test.$L bio-ks-dev.$L bio-kl-tst.$L bio-ks.$L; do
         echo "apply_bpe.py to ${f}..."
         python $BPEROOT/apply_bpe.py -c $BPE_CODE < $tmp/$f > $tmp/bpe.$f
     done
@@ -147,6 +147,6 @@ perl $CLEAN -ratio 1.5 $tmp/bpe.valid $src $tgt $prep/valid 1 250
 for L in $src $tgt; do
     cp $tmp/bpe.test.$L $prep/test.$L
     cp $tmp/bpe.bio-ks-dev.$L $prep/bio-ks-dev.$L
-    cp $tmp/bpe.bio-ks-test.$L $prep/bio-ks-test.$L
+    cp $tmp/bpe.bio-ks-tst.$L $prep/bio-ks-tst.$L
     cp $tmp/bpe.bio-ks.$L $prep/bio-ks.$L
 done
