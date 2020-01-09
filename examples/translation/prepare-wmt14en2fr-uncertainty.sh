@@ -106,6 +106,8 @@ for l in $src $tgt; do
         sed -e 's/\s*<\/seg>\s*//g' | \
         sed -e "s/\’/\'/g" | \
     perl $TOKENIZER -threads 24 -a -l $l > $tmp/test.$l
+    head -n 1500 $tmp/test.$l > $tmp/test-h1.$l
+    tail -n +1501 $tmp/test.$l > $tmp/test-h2.$l
     echo ""
     grep '<seg id' $orig/khresmoi-summary-test-set/khresmoi-summary-dev.${l}.sgm | \
         sed -e 's/<seg id="[0-9]*">\s*//g' | \
@@ -121,6 +123,10 @@ for l in $src $tgt; do
     echo ""
     cat $tmp/bio-ks-dev.$l $tmp/bio-ks-test.$l > $tmp/bio-ks.$l
 done
+
+#Making language-switched test dataset
+cat $tmp/test.en > $tmp/test-rev.fr
+cat $tmp/test.fr > $tmp/test-rev.en
 
 echo "splitting train and valid..."
 for l in $src $tgt; do
@@ -139,7 +145,7 @@ echo "learn_bpe.py on ${TRAIN}..."
 python $BPEROOT/learn_bpe.py -s $BPE_TOKENS < $TRAIN > $BPE_CODE
 
 for L in $src $tgt; do
-    for f in train.$L valid.$L test.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L; do
+    for f in train.$L valid.$L test.$L test-h1.$L test-h2.$L  test-rev.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L; do
         echo "apply_bpe.py to ${f}..."
         python $BPEROOT/apply_bpe.py -c $BPE_CODE < $tmp/$f > $tmp/bpe.$f
     done
@@ -150,7 +156,25 @@ perl $CLEAN -ratio 1.5 $tmp/bpe.valid $src $tgt $prep/valid 1 250
 
 for L in $src $tgt; do
     cp $tmp/bpe.test.$L $prep/test.$L
+    cp $tmp/bpe.test-h1.$L $prep/test-h1.$L
+    cp $tmp/bpe.test-h2.$L $prep/test-h1.$L
     cp $tmp/bpe.bio-ks-dev.$L $prep/bio-ks-dev.$L
     cp $tmp/bpe.bio-ks-test.$L $prep/bio-ks-test.$L
     cp $tmp/bpe.bio-ks.$L $prep/bio-ks.$L
+
+    cat $prep/test.$L | python permute_sentence.py > $prep/test-perm.$L
 done
+
+cp test.fr test-fren.en
+cp test.en test-fren.fr
+cp test.en test-enen.fr
+cp test.en test-enen.en
+cp test.fr test-frfr.en
+cp test.fr test-frfr.fr
+
+cp test-perm.fr test-perm-enfr.fr
+cp test-perm.en test-perm-enfr.en
+cp test.en test-perm-fr.en
+cp test-perm.fr test-perm-fr.fr
+cp test-perm.en test-perm-en.en
+cp test.fr test-perm-en.fr
