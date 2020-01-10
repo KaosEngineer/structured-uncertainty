@@ -147,7 +147,7 @@ echo "learn_bpe.py on ${TRAIN}..."
 python $BPEROOT/learn_bpe.py -s $BPE_TOKENS < $TRAIN > $BPE_CODE
 
 for L in $src $tgt; do
-    for f in train.$L valid.$L test.$L test-h1.$L test-h2.$L test-rev.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L; do
+    for f in train.$L valid.$L test.$L test-h1.$L test-h2.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L; do
         echo "apply_bpe.py to ${f}..."
         python $BPEROOT/apply_bpe.py -c $BPE_CODE < $tmp/$f > $tmp/bpe.$f
     done
@@ -158,7 +158,6 @@ perl $CLEAN -ratio 1.5 $tmp/bpe.valid $src $tgt $prep/valid 1 250
 
 for L in $src $tgt; do
     cp $tmp/bpe.test.$L $prep/test.$L
-    cp $tmp/bpe.test-rev.$L $prep/test-rev.$L
     cp $tmp/bpe.test-h1.$L $prep/test-h1.$L
     cp $tmp/bpe.test-h2.$L $prep/test-h2.$L
     cp $tmp/bpe.bio-ks-dev.$L $prep/bio-ks-dev.$L
@@ -170,6 +169,7 @@ done
 
 cd $prep
 
+#Make language-switched forms of the data
 cp test.de test-deen.en
 cp test.en test-deen.de
 cp test.en test-enen.de
@@ -177,9 +177,11 @@ cp test.en test-enen.en
 cp test.de test-dede.en
 cp test.de test-dede.de
 
+#Make BPE-permuted forms of the data.
 cp test-perm.de test-perm-ende.de
 cp test-perm.en test-perm-ende.en
 cp test.en test-perm-de.en
 cp test-perm.de test-perm-de.de
 cp test-perm.en test-perm-en.en
 cp test.de test-perm-en.de
+cd ../

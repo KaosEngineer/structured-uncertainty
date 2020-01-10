@@ -124,10 +124,6 @@ for l in $src $tgt; do
     cat $tmp/bio-ks-dev.$l $tmp/bio-ks-test.$l > $tmp/bio-ks.$l
 done
 
-#Making language-switched test dataset
-cat $tmp/test.en > $tmp/test-rev.fr
-cat $tmp/test.fr > $tmp/test-rev.en
-
 echo "splitting train and valid..."
 for l in $src $tgt; do
     awk '{if (NR%1333 == 0)  print $0; }' $tmp/train.tags.$lang.tok.$l > $tmp/valid.$l
@@ -145,7 +141,7 @@ echo "learn_bpe.py on ${TRAIN}..."
 python $BPEROOT/learn_bpe.py -s $BPE_TOKENS < $TRAIN > $BPE_CODE
 
 for L in $src $tgt; do
-    for f in train.$L valid.$L test.$L test-h1.$L test-h2.$L  test-rev.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L; do
+    for f in train.$L valid.$L test.$L test-h1.$L test-h2.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L; do
         echo "apply_bpe.py to ${f}..."
         python $BPEROOT/apply_bpe.py -c $BPE_CODE < $tmp/$f > $tmp/bpe.$f
     done
@@ -165,6 +161,8 @@ for L in $src $tgt; do
     cat $prep/test.$L | python permute_sentence.py > $prep/test-perm.$L
 done
 
+cd $prep
+#Make language-switched forms of the data
 cp test.fr test-fren.en
 cp test.en test-fren.fr
 cp test.en test-enen.fr
@@ -172,9 +170,11 @@ cp test.en test-enen.en
 cp test.fr test-frfr.en
 cp test.fr test-frfr.fr
 
+#Make BPE-permuted forms of the data.
 cp test-perm.fr test-perm-enfr.fr
 cp test-perm.en test-perm-enfr.en
 cp test.en test-perm-fr.en
 cp test-perm.fr test-perm-fr.fr
 cp test-perm.en test-perm-en.en
 cp test.fr test-perm-en.fr
+cd ../
