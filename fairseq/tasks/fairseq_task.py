@@ -200,8 +200,12 @@ class FairseqTask(object):
 
     def build_generator(self, args):
         if getattr(args, 'score_reference', False):
-            from fairseq.sequence_scorer import SequenceScorer
-            return SequenceScorer(self.target_dictionary)
+            if getattr(args, 'compute_uncertainty', False):
+                from fairseq.sequence_scorer import SequenceScorerWithUncertainty
+                return SequenceScorerWithUncertainty(self.target_dictionary)
+            else:
+                from fairseq.sequence_scorer import SequenceScorer
+                return SequenceScorer(self.target_dictionary)
         else:
             from fairseq.sequence_generator import SequenceGenerator, SequenceGeneratorWithAlignment
             if getattr(args, 'print_alignment', False):
