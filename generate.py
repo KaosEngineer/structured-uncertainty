@@ -153,6 +153,39 @@ def main(args):
                             ))
                         ))
 
+                        if args.compute_uncertainty:
+                            print('T-EOE-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.4f}'.format(x),
+                                    hypo['token_uncertainties']['entropy_of_expected'].tolist(),
+                                ))
+                            ))
+
+                            print('T-EXE-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.4f}'.format(x),
+                                    hypo['token_uncertainties']['expected_entropy'].tolist(),
+                                ))
+                            ))
+
+                            print('T-MI-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.4f}'.format(x),
+                                    hypo['token_uncertainties']['mutual_information'].tolist(),
+                                ))
+                            ))
+
+                            print('T-EPKL-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.4f}'.format(x),
+                                    hypo['token_uncertainties']['EKPL'].tolist(),
+                                ))
+                            ))
+
                         if args.print_alignment:
                             print('A-{}\t{}'.format(
                                 sample_id,
@@ -164,12 +197,12 @@ def main(args):
 
                         if getattr(args, 'retain_iter_history', False):
                             print("\n".join([
-                                    'E-{}_{}\t{}'.format(
-                                        sample_id, step,
-                                        utils.post_process_prediction(
-                                            h['tokens'].int().cpu(),
-                                            src_str, None, None, tgt_dict, None)[1])
-                                        for step, h in enumerate(hypo['history'])]))
+                                'E-{}_{}\t{}'.format(
+                                    sample_id, step,
+                                    utils.post_process_prediction(
+                                        h['tokens'].int().cpu(),
+                                        src_str, None, None, tgt_dict, None)[1])
+                                for step, h in enumerate(hypo['history'])]))
 
                     # Score only the top hypothesis
                     if has_target and j == 0:
