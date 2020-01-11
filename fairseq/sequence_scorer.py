@@ -134,7 +134,7 @@ class SequenceScorerWithUncertainty(object):
 
     @torch.no_grad()
     def generate(self, models, sample, **kwargs):
-        from fairseq.uncertainty import sequence_uncertainties
+        from fairseq.uncertainty import token_uncertainties
         """Score a batch of translations."""
         net_input = sample['net_input']
 
@@ -211,7 +211,7 @@ class SequenceScorerWithUncertainty(object):
                 avg_attn.div_(len(models))
 
         ensemble_probs = torch.stack(ensemble_probs, dim=0)
-        seq_unc, tok_unc = sequence_uncertainties(ensemble_probs)
+        tok_unc = token_uncertainties(ensemble_probs)
 
         bsz = avg_probs.size(0)
         hypos = []
@@ -240,10 +240,10 @@ class SequenceScorerWithUncertainty(object):
                 'attention': avg_attn_i,
                 'alignment': alignment,
                 'positional_scores': avg_probs_i,
-                'sequence_uncertainties': {'entropy_of_expected': seq_unc['entropy_of_expected'][i],
-                                           'expected_entropy': seq_unc['expected_entropy'][i],
-                                           'mutual_information': seq_unc['mutual_information'][i],
-                                           'EPKL': seq_unc['EPKL'][i]},
+                'sequence_uncertainties': {'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][i, :tgt_len]),
+                                        'expected_entropy': torch.mean(tok_unc['expected_entropy'][i, :tgt_len]),
+                                        'mutual_information': torch.mean(tok_unc['mutual_information'][i, :tgt_len]),
+                                        'EPKL': torch.mean(tok_unc['EPKL'][i, :tgt_len])},
                 'token_uncertainties': {'entropy_of_expected': tok_unc['entropy_of_expected'][i, :tgt_len],
                                         'expected_entropy': tok_unc['expected_entropy'][i, :tgt_len],
                                         'mutual_information': tok_unc['mutual_information'][i, :tgt_len],
