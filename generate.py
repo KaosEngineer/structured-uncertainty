@@ -182,7 +182,7 @@ def main(args):
                                 sample_id,
                                 ' '.join(map(
                                     lambda x: '{:.4f}'.format(x),
-                                    hypo['token_uncertainties']['EKPL'].tolist(),
+                                    hypo['token_uncertainties']['EPKL'].tolist(),
                                 ))
                             ))
 
