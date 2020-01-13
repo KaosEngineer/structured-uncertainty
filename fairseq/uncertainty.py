@@ -61,9 +61,7 @@ def token_uncertainties(probs, epsilon=1e-12):
 
 def aep_uncertainty(probs, tgt_len):
     log_probs = torch.log(probs)
-    foo=torch.sum(log_probs, dim=1)
-    print(foo.size())
-    total_unc = torch.logsumexp(foo, dim=0)-torch.log(probs.size(0))
+    total_unc = torch.logsumexp(torch.sum(log_probs, dim=1), dim=0) - torch.log(torch.tensor(probs.size(0), dtype=torch.float))
     total_unc = -total_unc / tgt_len
 
     data_unc = -torch.mean(log_probs)
