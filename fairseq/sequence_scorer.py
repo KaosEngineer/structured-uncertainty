@@ -123,18 +123,15 @@ class SequenceScorer(object):
         return hypos
 
 
-class SequenceScorerWithUncertainty(object):
+class SequenceScorerWithUncertainty(SequenceScorer):
     """Scores the target for a given source sentence. Additionally yields measures of uncertainty"""
-
-    def __init__(self, tgt_dict, softmax_batch=None):
-        self.pad = tgt_dict.pad()
-        self.eos = tgt_dict.eos()
-        self.softmax_batch = softmax_batch or sys.maxsize
-        assert self.softmax_batch > 0
 
     @torch.no_grad()
     def generate(self, models, sample, **kwargs):
-        from fairseq.uncertainty import token_uncertainties
+        # Uncertainties are derived using an ensemble of models, so we have to have more than 1 model...
+        assert len(models) > 1
+
+        from fairseq.uncertainty import token_uncertainties, aep_uncertainty
         """Score a batch of translations."""
         net_input = sample['net_input']
 
@@ -164,8 +161,7 @@ class SequenceScorerWithUncertainty(object):
 
         # compute scores for each model in the ensemble
         ensemble_probs = []
-        ensemble_attn = []
-        avg_probs = None
+        target_probs = []
         avg_attn = None
         for model in models:
             model.eval()
@@ -194,26 +190,27 @@ class SequenceScorerWithUncertainty(object):
 
             probs = probs.view(sample['target'].shape)
 
-            if avg_probs is None:
-                avg_probs = probs
-            else:
-                avg_probs.add_(probs)
+            target_probs.append(probs)
+
             if attn is not None and torch.is_tensor(attn):
                 attn = attn.data
                 if avg_attn is None:
                     avg_attn = attn
                 else:
                     avg_attn.add_(attn)
-        if len(models) > 1:
-            avg_probs.div_(len(models))
-            avg_probs.log_()
-            if avg_attn is not None:
-                avg_attn.div_(len(models))
+
+        if avg_attn is not None:
+            avg_attn.div_(len(models))
 
         ensemble_probs = torch.stack(ensemble_probs, dim=0)
         tok_unc = token_uncertainties(ensemble_probs)
 
-        bsz = avg_probs.size(0)
+        target_probs = torch.stack(target_probs, dim=0)
+        avg_probs = torch.mean(target_probs, dim=0)
+
+        aep_probs = torch.transpose(target_probs, dim0=0, dim1=1)
+
+        bsz = target_probs.size(1)
         hypos = []
         start_idxs = sample['start_indices'] if 'start_indices' in sample else [0] * bsz
         for i in range(bsz):
@@ -222,7 +219,11 @@ class SequenceScorerWithUncertainty(object):
                 if sample['target'] is not None else None
             tgt_len = ref.numel()
             avg_probs_i = avg_probs[i][start_idxs[i]:start_idxs[i] + tgt_len]
+
             score_i = avg_probs_i.sum() / tgt_len
+
+            t_unc, d_unc, mi = aep_uncertainty(aep_probs[i], tgt_len)
+
             if avg_attn is not None:
                 avg_attn_i = avg_attn[i]
                 alignment = utils.extract_hard_alignment(
@@ -240,10 +241,15 @@ class SequenceScorerWithUncertainty(object):
                 'attention': avg_attn_i,
                 'alignment': alignment,
                 'positional_scores': avg_probs_i,
-                'sequence_uncertainties': {'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][i, :tgt_len]),
-                                        'expected_entropy': torch.mean(tok_unc['expected_entropy'][i, :tgt_len]),
-                                        'mutual_information': torch.mean(tok_unc['mutual_information'][i, :tgt_len]),
-                                        'EPKL': torch.mean(tok_unc['EPKL'][i, :tgt_len])},
+                'sequence_uncertainties': {
+                    'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][i, :tgt_len]),
+                    'expected_entropy': torch.mean(tok_unc['expected_entropy'][i, :tgt_len]),
+                    'mutual_information': torch.mean(tok_unc['mutual_information'][i, :tgt_len]),
+                    'EPKL': torch.mean(tok_unc['EPKL'][i, :tgt_len])},
+                'aep_uncertainties': {
+                    'entropy_of_expected': t_unc,
+                    'expected_entropy': d_unc,
+                    'mutual_information': mi},
                 'token_uncertainties': {'entropy_of_expected': tok_unc['entropy_of_expected'][i, :tgt_len],
                                         'expected_entropy': tok_unc['expected_entropy'][i, :tgt_len],
                                         'mutual_information': tok_unc['mutual_information'][i, :tgt_len],

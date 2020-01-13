@@ -153,7 +153,7 @@ perl $CLEAN -ratio 1.5 $tmp/bpe.valid $src $tgt $prep/valid 1 250
 for L in $src $tgt; do
     cp $tmp/bpe.test.$L $prep/test.$L
     cp $tmp/bpe.test-h1.$L $prep/test-h1.$L
-    cp $tmp/bpe.test-h2.$L $prep/test-h1.$L
+    cp $tmp/bpe.test-h2.$L $prep/test-h2.$L
     cp $tmp/bpe.bio-ks-dev.$L $prep/bio-ks-dev.$L
     cp $tmp/bpe.bio-ks-test.$L $prep/bio-ks-test.$L
     cp $tmp/bpe.bio-ks.$L $prep/bio-ks.$L

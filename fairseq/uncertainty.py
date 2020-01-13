@@ -1,10 +1,11 @@
 import torch
 
+
 # Always expects models to be in dim=0 and vocab to be in last dimension
 
 
 def entropy_of_expected(probs, epsilon=1e-12):
-    dim = len(probs.size())-1
+    dim = len(probs.size()) - 1
     probs = torch.mean(probs, dim=0)
     log_probs = -torch.log(probs + epsilon)
     return torch.sum(probs * log_probs, dim=dim)
@@ -32,30 +33,43 @@ def expected_pairwise_kl_divergence(probs, epsilon=1e-12):
 
 
 def token_uncertainties(probs, epsilon=1e-12):
-    #Compute Expected Entropy
+    # Compute Expected Entropy
     dim = len(probs.size()) - 1
     log_probs = -torch.log(probs + epsilon)
-    exe = torch.mean(torch.sum(probs*log_probs, dim=dim), dim=0)
+    exe = torch.mean(torch.sum(probs * log_probs, dim=dim), dim=0)
 
-    #Compute Entropy of Expected and Mutual Information
+    # Compute Entropy of Expected and Mutual Information
     mprobs = torch.mean(probs, dim=0)
     mdim = len(mprobs.size()) - 1
-    log_mprobs = -torch.log(mprobs+epsilon)
-    eoe = torch.sum(mprobs*log_mprobs, dim=mdim)
+    log_mprobs = -torch.log(mprobs + epsilon)
+    eoe = torch.sum(mprobs * log_mprobs, dim=mdim)
     mutual_info = eoe - exe
 
-    #Compute Expected Pairwise KL-divergence
+    # Compute Expected Pairwise KL-divergence
     mlog_probs = torch.mean(log_probs, dim=0)
-    eoe_upper_bound = torch.sum(mprobs*mlog_probs, dim=mdim)
+    eoe_upper_bound = torch.sum(mprobs * mlog_probs, dim=mdim)
     epkl = eoe_upper_bound - exe
 
-    uncertainty = {#'confidence': conf,
-                   'entropy_of_expected': eoe,
-                   'expected_entropy': exe,
-                   'mutual_information': mutual_info,
-                   'EPKL': epkl}
+    uncertainty = {  # 'confidence': conf,
+        'entropy_of_expected': eoe,
+        'expected_entropy': exe,
+        'mutual_information': mutual_info,
+        'EPKL': epkl}
 
     return uncertainty
+
+
+def aep_uncertainty(probs, len, epsilon=1e-14):
+    print(probs.size())
+    mean_prob = torch.mean(torch.logsumexp(probs[:, :len] , dim=1))
+    total_unc = -torch.log(mean_prob) / len
+
+    log_probs = torch.log(probs)
+    data_unc = -torch.mean(log_probs[:, :len])
+
+    mi = total_unc - data_unc
+
+    return total_unc, data_unc, mi
 
 
 def sequence_uncertainties(probs, epsilon=1e-12):
@@ -67,10 +81,10 @@ def sequence_uncertainties(probs, epsilon=1e-12):
 
     token_uncertainty = token_uncertainties(probs, epsilon)
 
-    sequence_uncertainty = {#'confidence': conf,
-                            'entropy_of_expected': torch.mean(token_uncertainty['entropy_of_expected'], dim=1),
-                            'expected_entropy': torch.mean(token_uncertainty['expected_entropy'], dim=1),
-                            'mutual_information': torch.mean(token_uncertainty['mutual_information'], dim=1),
-                            'EPKL': torch.mean(token_uncertainty['EPKL'], dim=1)}
+    sequence_uncertainty = {  # 'confidence': conf,
+        'entropy_of_expected': torch.mean(token_uncertainty['entropy_of_expected'], dim=1),
+        'expected_entropy': torch.mean(token_uncertainty['expected_entropy'], dim=1),
+        'mutual_information': torch.mean(token_uncertainty['mutual_information'], dim=1),
+        'EPKL': torch.mean(token_uncertainty['EPKL'], dim=1)}
 
     return sequence_uncertainty, token_uncertainty
