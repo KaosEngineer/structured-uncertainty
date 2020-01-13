@@ -186,12 +186,15 @@ def main(args):
                                 ))
                             ))
 
-                            print('SU-{}\t{}\t{}\t{}\t{}'.format(
+                            print('SU-{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                                 sample_id,
                                 hypo['sequence_uncertainties']['entropy_of_expected'],
                                 hypo['sequence_uncertainties']['expected_entropy'],
                                 hypo['sequence_uncertainties']['mutual_information'],
                                 hypo['sequence_uncertainties']['EPKL'],
+                                hypo['aep_uncertainties']['entropy_of_expected'],
+                                hypo['aep_uncertainties']['expected_entropy'],
+                                hypo['aep_uncertainties']['mutual_information'],
                             ))
 
                         if args.print_alignment:
