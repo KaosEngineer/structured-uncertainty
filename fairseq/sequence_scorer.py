@@ -222,7 +222,7 @@ class SequenceScorerWithUncertainty(SequenceScorer):
 
             score_i = avg_probs_i.sum() / tgt_len
 
-            t_unc, d_unc, mi = aep_uncertainty(aep_probs[i], tgt_len)
+            t_unc, d_unc, mi = aep_uncertainty(aep_probs[i][:, :tgt_len], tgt_len)
 
             if avg_attn is not None:
                 avg_attn_i = avg_attn[i]
