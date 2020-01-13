@@ -59,7 +59,8 @@ def token_uncertainties(probs, epsilon=1e-12):
     return uncertainty
 
 
-def aep_uncertainty(probs, tgt_len, epsilon=1e-14):
+def aep_uncertainty(probs, tgt_len, epsilon=1e-12):
+    probs=probs+epsilon
     log_probs = torch.log(probs)
 
     mean_prob = torch.mean(torch.exp(torch.sum(log_probs, dim=1)))
