@@ -208,7 +208,7 @@ class SequenceScorerWithUncertainty(SequenceScorer):
         target_probs = torch.stack(target_probs, dim=0)
         avg_probs = torch.mean(target_probs, dim=0)
 
-        aep_probs = torch.transpose(target_probs, dim0=0, dim1=1)
+        aep_probs = target_probs.permute(1, 0, 2)
 
         bsz = target_probs.size(1)
         hypos = []
