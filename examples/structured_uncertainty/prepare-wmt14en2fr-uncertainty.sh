@@ -166,7 +166,8 @@ BPE_CODE=$prep/code
 #python $BPEROOT/learn_bpe.py -s $BPE_TOKENS < $TRAIN > $BPE_CODE
 
 for L in $src $tgt; do
-    for f in train.$L valid.$L test.$L test-h1.$L test-h2.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L librispeech-tc.$L librispeech-tp.$L; do
+    #for f in train.$L valid.$L test.$L test-h1.$L test-h2.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L librispeech-tc.$L librispeech-tp.$L; do
+    for f in test.$L test-h1.$L test-h2.$L bio-ks-dev.$L bio-ks-test.$L bio-ks.$L librispeech-tc.$L librispeech-tp.$L; do
         echo "apply_bpe.py to ${f}..."
         python $BPEROOT/apply_bpe.py -c $BPE_CODE < $tmp/$f > $tmp/bpe.$f
     done
