@@ -190,8 +190,8 @@ for L in $src $tgt; do
     cp $tmp/bpe.bio-ks-dev.$L $prep/bio-ks-dev.$L
     cp $tmp/bpe.bio-ks-test.$L $prep/bio-ks-test.$L
     cp $tmp/bpe.bio-ks.$L $prep/bio-ks.$L
-    cp $tmp/librispeech-tc.$L $prep/librispeech-tc.$L
-    cp $tmp/librispeech-tp.$L $prep/librispeech-tp.$L
+    cp $tmp/bpe.librispeech-tc.$L $prep/librispeech-tc.$L
+    cp $tmp/bpe.librispeech-tp.$L $prep/librispeech-tp.$L
 
     cat $prep/test.$L | python permute_sentence.py > $prep/test-perm.$L
 done
