@@ -15,6 +15,8 @@ def load_text(path):
     with open(os.path.join(path), 'r') as f:
         for line in f.readlines():
             line = line[0:-1].split()
+            print(line)
+            break
             utt = {'file': line[0],
                    'sprk': line[2],
                    'start': float(line[3]),
