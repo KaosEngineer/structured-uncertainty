@@ -12,7 +12,7 @@ parser.add_argument('out_path', type=str,
 
 def load_text(path):
     utts = []
-    with open(os.path.join(path, 'refs.txt'), 'r') as f:
+    with open(os.path.join(path), 'r') as f:
         for line in f.readlines():
             line = line[0:-1].split()
             utt = {'file': line[0],
