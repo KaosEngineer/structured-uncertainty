@@ -15,10 +15,8 @@ def load_text(path):
     with open(os.path.join(path), 'r') as f:
         for line in f.readlines():
             line = line[0:-1].split()
-            print(line)
-            break
             utt = {'file': line[0],
-                   'sprk': line[2],
+                   'spkr': line[2],
                    'start': float(line[3]),
                    'end': float(line[4]),
                    'text': ' '.join(line[5:])
@@ -43,7 +41,8 @@ def main():
         if not os.path.exists(tgt_dir):
             os.mkdir(tgt_dir)
         tgt_path = os.path.join(tgt_dir, tgt_name)
-        os.system(f'sox {file_path}.wav {tgt_path} {start} {duration}')
+        #print(f'sox {file_path}.wav {tgt_path} {start} {duration}')
+        os.system(f'sox {file_path}.wav {tgt_path} trim {start} {duration}')
         with open(os.path.join(tgt_dir, f'{file}.trans.txt'), 'a') as f:
             f.write(f"{file}_{i} "+utt['text']+'\n')
         if i > 100:
