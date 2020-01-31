@@ -41,12 +41,9 @@ def main():
         if not os.path.exists(tgt_dir):
             os.mkdir(tgt_dir)
         tgt_path = os.path.join(tgt_dir, tgt_name)
-        #print(f'sox {file_path}.wav {tgt_path} {start} {duration}')
         os.system(f'sox {file_path}.wav {tgt_path} trim {start} {duration}')
         with open(os.path.join(tgt_dir, f'{file}.trans.txt'), 'a') as f:
             f.write(f"{file}_{i} "+utt['text']+'\n')
-        if i > 100:
-            break
 
 if __name__ == '__main__':
     main()
