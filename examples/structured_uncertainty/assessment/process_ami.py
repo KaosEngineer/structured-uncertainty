@@ -37,13 +37,13 @@ def main():
         duration = utt['end']-start
         tgt_dir = os.path.join(args.out_path, file)
         file_path = os.path.join(args.wav_path, file)
-        tgt_name = file+f"_seg_{i}.wav"
+        tgt_name = file+f"-{i}.wav"
         if not os.path.exists(tgt_dir):
             os.mkdir(tgt_dir)
         tgt_path = os.path.join(tgt_dir, tgt_name)
         os.system(f'sox {file_path}.wav {tgt_path} trim {start} {duration}')
         with open(os.path.join(tgt_dir, f'{file}.trans.txt'), 'a') as f:
-            f.write(f"{file}_{i} "+utt['text']+'\n')
+            f.write(f"{file}-{i} "+utt['text']+'\n')
 
 if __name__ == '__main__':
     main()
