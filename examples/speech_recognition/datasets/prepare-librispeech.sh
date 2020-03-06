@@ -18,7 +18,7 @@ fi
 download_dir=${1%/}
 out_dir=${2%/}
 
-fairseq_root=~/fairseq-py/
+fairseq_root=~/uncertainty/structure/fairseq-py/
 mkdir -p ${out_dir}
 cd ${out_dir} || exit
 
@@ -33,10 +33,10 @@ fi
 echo "Data Download"
 for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
     url=$base_url/$part.tar.gz
-    if ! wget -P $download_dir $url; then
-        echo "$0: wget failed for $url"
-        exit 1
-    fi
+#    if ! wget -P $download_dir $url; then
+#        echo "$0: wget failed for $url"
+#        exit 1
+#    fi
     if ! tar -C $download_dir -xvzf $download_dir/$part.tar.gz; then
         echo "$0: error un-tarring archive $download_dir/$part.tar.gz"
         exit 1
@@ -53,6 +53,8 @@ find ${download_dir}/LibriSpeech/${train_dir}/ -name '*.txt' -exec cat {} \; >> 
 
 # Use combined dev-clean and dev-other as validation set
 find ${download_dir}/LibriSpeech/dev-clean/ ${download_dir}/LibriSpeech/dev-other/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/valid_text
+find ${download_dir}/LibriSpeech/dev-clean/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/dev-clean/text
+find ${download_dir}/LibriSpeech/dev-other/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/dev-other/text
 find ${download_dir}/LibriSpeech/test-clean/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/test-clean/text
 find ${download_dir}/LibriSpeech/test-other/ -name '*.txt' -exec cat {} \; >> ${download_dir}/LibriSpeech/test-other/text
 
@@ -78,7 +80,7 @@ cat ${encoded} | tr ' ' '\n' | sort | uniq -c | awk '{print $2 " " $1}' > ${fair
 wc -l ${dict}
 
 echo "Prepare train and test jsons"
-for part in train_960 test-other test-clean; do
+for part in train_960 test-other test-clean dev-clean dev-other; do
     python ${fairseq_root}/examples/speech_recognition/datasets/asr_prep_json.py --audio-dirs ${download_dir}/LibriSpeech/${part} --labels ${download_dir}/LibriSpeech/${part}/text \
     --spm-model ${bpemodel}.model --audio-format flac --dictionary ${fairseq_dict} --output ${part}.json
 done

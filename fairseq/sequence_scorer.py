@@ -160,8 +160,8 @@ class SequenceScorerWithUncertainty(SequenceScorer):
         orig_target = sample['target']
 
         # compute scores for each model in the ensemble
-        ensemble_probs = []
-        target_probs = []
+        stacked_lprobs = []
+        target_lprobs = []
         avg_attn = None
         for model in models:
             model.eval()
@@ -171,26 +171,26 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                 attn = attn.get('attn', None)
 
             batched = batch_for_softmax(decoder_out, orig_target)
-            probs, idx = None, 0
+            lprobs, idx = None, 0
             for bd, tgt, is_single in batched:
                 sample['target'] = tgt
-                curr_prob = model.get_normalized_probs(bd, log_probs=len(models) == 1, sample=sample).data
-                ensemble_probs.append(curr_prob)
+                curr_lprob = model.get_normalized_probs(bd, log_probs=True, sample=sample).data
+                stacked_lprobs.append(curr_lprob)
                 if is_single:
-                    probs = gather_target_probs(curr_prob, orig_target)
+                    lprobs = gather_target_probs(curr_lprob, orig_target)
                 else:
-                    if probs is None:
-                        probs = curr_prob.new(orig_target.numel())
-                    step = curr_prob.size(0) * curr_prob.size(1)
+                    if lprobs is None:
+                        lprobs = curr_lprob.new(orig_target.numel())
+                    step = curr_lprob.size(0) * curr_lprob.size(1)
                     end = step + idx
-                    tgt_probs = gather_target_probs(curr_prob.view(tgt.shape + (curr_prob.size(-1),)), tgt)
-                    probs[idx:end] = tgt_probs.view(-1)
+                    tgt_lprobs = gather_target_probs(curr_lprob.view(tgt.shape + (curr_lprob.size(-1),)), tgt)
+                    lprobs[idx:end] = tgt_lprobs.view(-1)
                     idx = end
                 sample['target'] = orig_target
 
-            probs = probs.view(sample['target'].shape)
+            lprobs = lprobs.view(sample['target'].shape)
 
-            target_probs.append(probs)
+            target_lprobs.append(lprobs)
 
             if attn is not None and torch.is_tensor(attn):
                 attn = attn.data
@@ -202,15 +202,17 @@ class SequenceScorerWithUncertainty(SequenceScorer):
         if avg_attn is not None:
             avg_attn.div_(len(models))
 
-        ensemble_probs = torch.stack(ensemble_probs, dim=0)
-        tok_unc = token_uncertainties(ensemble_probs)
+        stacked_lprobs = torch.stack(stacked_lprobs, dim=0)
+        esz = stacked_lprobs.size(0)
+        tok_unc = token_uncertainties(stacked_lprobs)
 
-        target_probs = torch.stack(target_probs, dim=0)
-        avg_probs = torch.mean(target_probs, dim=0)
+        target_lprobs = torch.stack(target_lprobs, dim=0)
+        avg_lprobs = torch.logsumexp(target_lprobs, dim=0) - torch.log(torch.tensor
+                                                                      (esz, dtype=torch.float32))
 
-        aep_probs = target_probs.permute(1, 0, 2)
+        aep_lprobs = target_lprobs.permute(1, 0, 2)
 
-        bsz = target_probs.size(1)
+        bsz = target_lprobs.size(1)
         hypos = []
         start_idxs = sample['start_indices'] if 'start_indices' in sample else [0] * bsz
         for i in range(bsz):
@@ -218,12 +220,11 @@ class SequenceScorerWithUncertainty(SequenceScorer):
             ref = utils.strip_pad(sample['target'][i, start_idxs[i]:], self.pad) \
                 if sample['target'] is not None else None
             tgt_len = ref.numel()
-            avg_probs_i = avg_probs[i][start_idxs[i]:start_idxs[i] + tgt_len]
+            avg_lprobs_i = avg_lprobs[i][start_idxs[i]:start_idxs[i] + tgt_len]
 
-            score_i = avg_probs_i.sum() / tgt_len
-
-            t_unc, d_unc, mi = aep_uncertainty(aep_probs[i][:, :tgt_len], tgt_len)
-
+            score_i = avg_lprobs_i.sum() / tgt_len
+            eos_enscores = torch.sum(aep_lprobs[i][:, :tgt_len], dim=1, keepdim=True)
+            aep_tu, aep_du, aep_nmpi = aep_uncertainty(eos_enscores, tgt_len-1)
             if avg_attn is not None:
                 avg_attn_i = avg_attn[i]
                 alignment = utils.extract_hard_alignment(
@@ -240,19 +241,23 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                 'score': score_i,
                 'attention': avg_attn_i,
                 'alignment': alignment,
-                'positional_scores': avg_probs_i,
+                'positional_scores': avg_lprobs_i,
+                'token_uncertainties': {
+                    'entropy_of_expected': tok_unc['entropy_of_expected'][i, :tgt_len],
+                    'expected_entropy': tok_unc['expected_entropy'][i, :tgt_len],
+                    'mutual_information': tok_unc['mutual_information'][i, :tgt_len],
+                    'EPKL': tok_unc['EPKL'][i, :tgt_len]
+                },
                 'sequence_uncertainties': {
                     'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][i, :tgt_len]),
                     'expected_entropy': torch.mean(tok_unc['expected_entropy'][i, :tgt_len]),
                     'mutual_information': torch.mean(tok_unc['mutual_information'][i, :tgt_len]),
-                    'EPKL': torch.mean(tok_unc['EPKL'][i, :tgt_len])},
-                'aep_uncertainties': {
-                    'entropy_of_expected': t_unc,
-                    'expected_entropy': d_unc,
-                    'mutual_information': mi},
-                'token_uncertainties': {'entropy_of_expected': tok_unc['entropy_of_expected'][i, :tgt_len],
-                                        'expected_entropy': tok_unc['expected_entropy'][i, :tgt_len],
-                                        'mutual_information': tok_unc['mutual_information'][i, :tgt_len],
-                                        'EPKL': tok_unc['EPKL'][i, :tgt_len]},
+                    'EPKL': torch.mean(tok_unc['EPKL'][i, :tgt_len]),
+                    'score': -score_i,
+                    'aep_tu': aep_tu.squeeze(),
+                    'aep_du': aep_du.squeeze(),
+                    'aep_npmi': aep_nmpi.squeeze(),
+                    'score_npmi': aep_du.squeeze()+score_i,
+                },
             }])
         return hypos

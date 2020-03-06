@@ -95,9 +95,9 @@ class FairseqTask(object):
         return self.datasets[split]
 
     def get_batch_iterator(
-        self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
-        ignore_invalid_inputs=False, required_batch_size_multiple=1,
-        seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=0,
+            self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
+            ignore_invalid_inputs=False, required_batch_size_multiple=1,
+            seed=1, num_shards=1, shard_id=0, num_workers=0, epoch=0,
     ):
         """
         Get an iterator that yields batches of data from the given dataset.
@@ -207,29 +207,67 @@ class FairseqTask(object):
                 from fairseq.sequence_scorer import SequenceScorer
                 return SequenceScorer(self.target_dictionary)
         else:
-            from fairseq.sequence_generator import SequenceGenerator, SequenceGeneratorWithAlignment
+            from fairseq.sequence_generator import SequenceGenerator, SequenceGeneratorWithAlignment, \
+                SequenceGeneratorWithUncertainty
             if getattr(args, 'print_alignment', False):
-                seq_gen_cls = SequenceGeneratorWithAlignment
+                return SequenceGeneratorWithAlignment(
+                    self.target_dictionary,
+                    beam_size=getattr(args, 'beam', 5),
+                    max_len_a=getattr(args, 'max_len_a', 0),
+                    max_len_b=getattr(args, 'max_len_b', 200),
+                    min_len=getattr(args, 'min_len', 1),
+                    normalize_scores=(not getattr(args, 'unnormalized', False)),
+                    len_penalty=getattr(args, 'lenpen', 1),
+                    unk_penalty=getattr(args, 'unkpen', 0),
+                    sampling=getattr(args, 'sampling', False),
+                    sampling_topk=getattr(args, 'sampling_topk', -1),
+                    sampling_topp=getattr(args, 'sampling_topp', -1.0),
+                    temperature=getattr(args, 'temperature', 1.),
+                    diverse_beam_groups=getattr(args, 'diverse_beam_groups', -1),
+                    diverse_beam_strength=getattr(args, 'diverse_beam_strength', 0.5),
+                    match_source_len=getattr(args, 'match_source_len', False),
+                    no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
+                )
             else:
-                seq_gen_cls = SequenceGenerator
-            return seq_gen_cls(
-                self.target_dictionary,
-                beam_size=getattr(args, 'beam', 5),
-                max_len_a=getattr(args, 'max_len_a', 0),
-                max_len_b=getattr(args, 'max_len_b', 200),
-                min_len=getattr(args, 'min_len', 1),
-                normalize_scores=(not getattr(args, 'unnormalized', False)),
-                len_penalty=getattr(args, 'lenpen', 1),
-                unk_penalty=getattr(args, 'unkpen', 0),
-                sampling=getattr(args, 'sampling', False),
-                sampling_topk=getattr(args, 'sampling_topk', -1),
-                sampling_topp=getattr(args, 'sampling_topp', -1.0),
-                temperature=getattr(args, 'temperature', 1.),
-                diverse_beam_groups=getattr(args, 'diverse_beam_groups', -1),
-                diverse_beam_strength=getattr(args, 'diverse_beam_strength', 0.5),
-                match_source_len=getattr(args, 'match_source_len', False),
-                no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
-            )
+                if getattr(args, 'compute_uncertainty', False):
+                    return SequenceGeneratorWithUncertainty(
+                        self.target_dictionary,
+                        beam_size=getattr(args, 'beam', 5),
+                        max_len_a=getattr(args, 'max_len_a', 0),
+                        max_len_b=getattr(args, 'max_len_b', 200),
+                        min_len=getattr(args, 'min_len', 1),
+                        normalize_scores=(not getattr(args, 'unnormalized', False)),
+                        len_penalty=getattr(args, 'lenpen', 1),
+                        unk_penalty=getattr(args, 'unkpen', 0),
+                        sampling=getattr(args, 'sampling', False),
+                        sampling_topk=getattr(args, 'sampling_topk', -1),
+                        sampling_topp=getattr(args, 'sampling_topp', -1.0),
+                        temperature=getattr(args, 'temperature', 1.),
+                        diverse_beam_groups=getattr(args, 'diverse_beam_groups', -1),
+                        diverse_beam_strength=getattr(args, 'diverse_beam_strength', 0.5),
+                        match_source_len=getattr(args, 'match_source_len', False),
+                        no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
+                        ensemble_sum_prod=getattr(args, 'ensemble_sum_prod', False),
+                    )
+                else:
+                    return SequenceGenerator(
+                        self.target_dictionary,
+                        beam_size=getattr(args, 'beam', 5),
+                        max_len_a=getattr(args, 'max_len_a', 0),
+                        max_len_b=getattr(args, 'max_len_b', 200),
+                        min_len=getattr(args, 'min_len', 1),
+                        normalize_scores=(not getattr(args, 'unnormalized', False)),
+                        len_penalty=getattr(args, 'lenpen', 1),
+                        unk_penalty=getattr(args, 'unkpen', 0),
+                        sampling=getattr(args, 'sampling', False),
+                        sampling_topk=getattr(args, 'sampling_topk', -1),
+                        sampling_topp=getattr(args, 'sampling_topp', -1.0),
+                        temperature=getattr(args, 'temperature', 1.),
+                        diverse_beam_groups=getattr(args, 'diverse_beam_groups', -1),
+                        diverse_beam_strength=getattr(args, 'diverse_beam_strength', 0.5),
+                        match_source_len=getattr(args, 'match_source_len', False),
+                        no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
+                    )
 
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False):
         """

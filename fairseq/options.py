@@ -486,8 +486,9 @@ def add_generation_args(parser):
     group.add_argument('--score-reference', action='store_true',
                        help='just score the reference translation')
     group.add_argument('--compute-uncertainty', action='store_true',
-                       help='Computes structured token and sequence level uncertainties. Assumes --score-sequence and '
-                            'using an ensemble of models')
+                       help='Computes structured token and sequence level uncertainties. Assumes an ensemble of models')
+    group.add_argument('--ensemble-sum-prod', action='store_true',
+                       help='probability of hypothesis is mixture of probabilities of hypothesis across ensemble. Default is false.')
     group.add_argument('--prefix-size', default=0, type=int, metavar='PS',
                        help='initialize generation by target prefix of given length')
     group.add_argument('--no-repeat-ngram-size', default=0, type=int, metavar='N',

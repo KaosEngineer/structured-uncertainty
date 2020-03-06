@@ -83,6 +83,118 @@ class BeamSearch(Search):
         return self.scores_buf, self.indices_buf, self.beams_buf
 
 
+class EnsembleBeamSearch(BeamSearch):
+
+    def step_sum_prod(self, step, stacked_lprobs, scores, enscores):
+        """Take a single search step.
+
+        Args:
+            step: the current search step, starting at 0
+            stacked_lprobs: (esz x bsz x input_beam_size x vocab_size)
+                the model ensemble's log-probabilities over the vocabulary at the current step
+            scores: (bsz x input_beam_size x step)
+                Dummy input for interface consistency
+            enscores: (esz x bsz x input_beam_size x step)
+                the historical model ensemble's scores of each hypothesis up to this point
+
+        Return: A tuple of (scores, indices, beams) where:
+            scores: (bsz x output_beam_size)
+                the scores of the chosen elements; output_beam_size can be
+                larger than input_beam_size, e.g., we may return
+                2*input_beam_size to account for EOS
+            enscores: (enz, bsz x output_beam_size)
+                the individual ensemble scores of the chosen elements; output_beam_size can be
+                larger than input_beam_size, e.g., we may return
+                2*input_beam_size to account for EOS
+            indices: (bsz x output_beam_size)
+                the indices of the chosen elements
+            beams: (bsz x output_beam_size)
+                the hypothesis ids of the chosen elements, in the range [0, input_beam_size)
+        """
+        super()._init_buffers(stacked_lprobs)
+        esz, bsz, beam_size, vocab_size = stacked_lprobs.size()
+
+        if step == 0:
+            stacked_lprobs = stacked_lprobs[:, :, ::beam_size, :].contiguous()
+
+        else:
+            # make stacked probs contain cumulative scores for each hypothesis for each model
+            stacked_lprobs.add_(enscores[:, :, :, step - 1].unsqueeze(-1))
+
+        # Average the probability of each hypothesis over the ensemble
+        lprobs = torch.logsumexp(stacked_lprobs, dim=0) - torch.log(torch.tensor(esz, dtype=torch.float32))
+        # lprobs is now of size [bsz , input_beam_size # vocab_size]
+        scores, self.indices_buf = torch.topk(lprobs.view(bsz, -1),
+                                              k=min(
+                                                  # Take the best 2 x beam_size predictions. We'll choose the first
+                                                  # beam_size of these which don't predict eos to continue with.
+                                                  beam_size * 2,
+                                                  lprobs.view(bsz, -1).size(1) - 1,  # -1 so we never select pad
+                                              ))
+        en_indicies = self.indices_buf.unsqueeze(0).repeat(esz, 1, 1)
+        self.scores_buf = stacked_lprobs.view(esz, bsz, -1).gather(index=en_indicies, dim=2)
+
+        torch.div(self.indices_buf, vocab_size, out=self.beams_buf)
+        self.indices_buf.fmod_(vocab_size)
+        return scores, self.scores_buf, self.indices_buf, self.beams_buf
+
+    def step_prod_sum(self, step, stacked_lprobs, scores, enscores):
+        """Take a single search step.
+
+        Args:
+            step: the current search step, starting at 0
+            stacked_lprobs: (esz x bsz x input_beam_size x vocab_size)
+                the model ensemble's log-probabilities over the vocabulary at the current step
+            scores: (bsz x input_beam_size x step)
+                the historical scores of each hypothesis up to this point
+            enscores: (esz x bsz x input_beam_size x step)
+                the historical model ensemble's scores of each hypothesis up to this point
+
+        Return: A tuple of (scores, indices, beams) where:
+            scores: (bsz x output_beam_size)
+                the scores of the chosen elements; output_beam_size can be
+                larger than input_beam_size, e.g., we may return
+                2*input_beam_size to account for EOS
+            enscores: (enz, bsz x output_beam_size)
+                the individual ensemble scores of the chosen elements; output_beam_size can be
+                larger than input_beam_size, e.g., we may return
+                2*input_beam_size to account for EOS
+            indices: (bsz x output_beam_size)
+                the indices of the chosen elements
+            beams: (bsz x output_beam_size)
+                the hypothesis ids of the chosen elements, in the range [0, input_beam_size)
+        """
+        super()._init_buffers(stacked_lprobs)
+        esz, bsz, beam_size, vocab_size = stacked_lprobs.size()
+        lprobs = torch.logsumexp(stacked_lprobs, dim=0) - torch.log(torch.tensor(esz, dtype=torch.float32))
+
+        if step == 0:
+            # at the first step all hypotheses are equally likely, so use
+            # only the first beam
+            lprobs = lprobs[:, ::beam_size, :].contiguous()
+            stacked_lprobs = stacked_lprobs[:, :, ::beam_size, :].contiguous()
+        else:
+            # make probs contain cumulative scores for each hypothesis
+            lprobs.add_(scores[:, :, step - 1].unsqueeze(-1))
+            stacked_lprobs.add_(enscores[:, :, :, step - 1].unsqueeze(-1))
+
+        torch.topk(lprobs.view(bsz, -1),
+                   k=min(
+                       # Take the best 2 x beam_size predictions. We'll choose the first
+                       # beam_size of these which don't predict eos to continue with.
+                       beam_size * 2,
+                       lprobs.view(bsz, -1).size(1) - 1,  # -1 so we never select pad
+                   ),
+                   out=(self.scores_buf, self.indices_buf))
+
+        en_indicies = self.indices_buf.unsqueeze(0).repeat(esz, 1, 1)
+        enscores = stacked_lprobs.view(esz, bsz, -1).gather(index=en_indicies, dim=2)
+
+        torch.div(self.indices_buf, vocab_size, out=self.beams_buf)
+        self.indices_buf.fmod_(vocab_size)
+        return self.scores_buf, enscores, self.indices_buf, self.beams_buf
+
+
 class LengthConstrainedBeamSearch(Search):
 
     def __init__(self, tgt_dict, min_len_a, min_len_b, max_len_a, max_len_b):
