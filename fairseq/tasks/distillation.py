@@ -52,7 +52,7 @@ class DistillationTask(TranslationTask):
         print('| [{}] dictionary: {} types'.format(args.target_lang, len(tgt_dict)))
 
         # Load ensemble
-        print('| loading model(s) from {}'.format(args.ensemble_path))
+        print('| loading model(s) from {}'.format(args.ensemble_paths))
         models, _model_args = checkpoint_utils.load_model_ensemble(
             args.ensemble_paths.split(','),
             task=args.ensemble_task,
