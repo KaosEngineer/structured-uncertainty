@@ -15,12 +15,10 @@ from fairseq.tasks.translation import TranslationTask
 class DistillationTask(TranslationTask):
     @staticmethod
     def add_args(parser):
-        super().add_args(parser)
+        TranslationTask.add_args(parser)
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
         parser.add_argument('--ensemble-task', default='translation', choices=TASK_REGISTRY.keys(),
                             help='Task used for training ensemble models')
-        # TODO ensemble-related args
-        pass
 
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
