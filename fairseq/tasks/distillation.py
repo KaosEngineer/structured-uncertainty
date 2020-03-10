@@ -6,7 +6,6 @@ from fairseq import options, checkpoint_utils
 from fairseq.data import (
     data_utils,
 )
-from fairseq.tasks import TASK_REGISTRY
 from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 
@@ -17,8 +16,6 @@ class DistillationTask(TranslationTask):
     def add_args(parser):
         TranslationTask.add_args(parser)
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
-        parser.add_argument('--ensemble-task', default='translation', choices=TASK_REGISTRY.keys(),
-                            help='Task used for training ensemble models')
 
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
@@ -55,7 +52,6 @@ class DistillationTask(TranslationTask):
         print('| loading model(s) from {}'.format(args.ensemble_paths))
         models, _model_args = checkpoint_utils.load_model_ensemble(
             args.ensemble_paths.split(','),
-            task=args.ensemble_task,
         )
 
         # Optimize ensemble for generation (includes setting .eval())
