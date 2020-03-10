@@ -50,6 +50,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         super().__init__(args, task)
         self.smooth_val = 1e-8
         self.tp_scaling = 1 - 1e-3
+        self.temp = 1  # TODO anneal
 
     def forward(self, model, sample, reduce=True):
         # batch x len x mixture_size x n_tokens
