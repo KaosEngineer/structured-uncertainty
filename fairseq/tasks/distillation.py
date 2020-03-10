@@ -56,10 +56,7 @@ class DistillationTask(TranslationTask):
 
         # Optimize ensemble for generation (includes setting .eval())
         for model in models:
-            model.make_generation_fast_(
-                beamable_mm_beam_size=None if args.no_beamable_mm else args.beam,
-                need_attn=False,
-            )
+            model.make_generation_fast_(need_attn=False)
             if args.fp16:
                 model.half()
 
