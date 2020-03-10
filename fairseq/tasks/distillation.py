@@ -52,6 +52,7 @@ class DistillationTask(TranslationTask):
         print('| loading model(s) from {}'.format(args.ensemble_paths))
         models, _model_args = checkpoint_utils.load_model_ensemble(
             args.ensemble_paths.split(','),
+            task=TranslationTask.setup_task(args, **kwargs)
         )
 
         # Optimize ensemble for generation (includes setting .eval())
