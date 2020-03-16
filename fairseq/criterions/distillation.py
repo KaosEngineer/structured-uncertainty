@@ -53,7 +53,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         self.temp = 1  # TODO anneal
 
     def forward(self, model, sample, reduce=True):
-        # batch x len x mixture_size x n_tokens
+        # batch x len x n_tokens
         net_output = model(**sample['net_input'])
 
         # batch x len x ensemble_size x n_tokens
@@ -79,7 +79,6 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         alphas = torch.exp(logits / temp)
         precision = torch.sum(alphas, dim=-1)
 
-        print(ensemble_logits.min().item())
         teacher_probs = F.softmax(ensemble_logits / temp, dim=-1)
         # Smooth for num. stability:
         probs_mean = 1 / teacher_probs.size(-1)
@@ -93,7 +92,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         assert torch.all(torch.isfinite(log_teacher_probs_geo_mean)).item()
 
         # Define the cost in two parts (dependent on targets and independent of targets)
-        target_independent_term = torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-2) \
+        target_independent_term = torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1) \
                                   - torch.lgamma(precision + self.smooth_val)
         assert torch.all(torch.isfinite(target_independent_term)).item()
 
