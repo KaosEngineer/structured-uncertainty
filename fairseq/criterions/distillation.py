@@ -48,7 +48,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.smooth_val = 1e-3
+        self.smooth_val = 1e-2
         self.tp_scaling = 1 - 1e-2
         self.temp = 1  # TODO anneal
 
@@ -94,7 +94,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         # Define the cost in two parts (dependent on targets and independent of targets)
         target_independent_term = torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1) \
                                   - torch.lgamma(precision + self.smooth_val)
-        assert torch.all(torch.isfinite(target_independent_term)).item()
+        assert torch.all(torch.isfinite(target_independent_term)).item(), target_independent_term
 
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-2)
         assert torch.all(torch.isfinite(target_dependent_term)).item()
