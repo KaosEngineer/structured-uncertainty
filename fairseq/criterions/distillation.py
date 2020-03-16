@@ -84,8 +84,10 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         assert torch.all(teacher_probs != 0).item(), f'{torch.min(teacher_probs).item()}'
         # Smooth for num. stability:
         probs_mean = 1 / teacher_probs.size(-1)
-        # Subtract mean, scale down, add mean back)
-        teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
+        # Subtract mean, scale down, add mean back
+        # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
+        # (or interpolate between true and uniform distributions)
+        teacher_probs = self.tp_scaling * teacher_probs + (1 - self.tp_scaling) * probs_mean
         assert torch.all(teacher_probs != 0).item(), f'{torch.min(teacher_probs).item()}'
 
         log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.smooth_val), dim=-2)
