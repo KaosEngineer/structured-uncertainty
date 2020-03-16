@@ -48,7 +48,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.smooth_val = 1e-8
+        self.smooth_val = 1e-4
         self.tp_scaling = 1 - 1e-3
         self.temp = 1  # TODO anneal
 
@@ -84,7 +84,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         probs_mean = 1 / teacher_probs.size(-1)
         # Subtract mean, scale down, add mean back)
         teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
-        assert torch.all(teacher_probs != 0).item()
+        assert torch.all(teacher_probs != 0).item(), f'{torch.min(teacher_probs).item()}'
 
         log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.smooth_val), dim=-2)
         assert torch.all(torch.isfinite(log_teacher_probs_geo_mean)).item()
