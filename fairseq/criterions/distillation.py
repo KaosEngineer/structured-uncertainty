@@ -93,11 +93,11 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         assert torch.all(torch.isfinite(log_teacher_probs_geo_mean)).item()
 
         # Define the cost in two parts (dependent on targets and independent of targets)
-        target_independent_term = (torch.sum(torch.lgamma(alphas.float() + self.smooth_val), dim=-1)
-                                   - torch.lgamma(precision + self.smooth_val).float()).half()
+        target_independent_term = (torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1, dtype=torch.float)
+                                   - torch.lgamma(precision + self.smooth_val).float())
         assert torch.all(torch.isfinite(target_independent_term)).item(), target_independent_term
 
-        target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-2)
+        target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-2, dtype=torch.float)
         assert torch.all(torch.isfinite(target_dependent_term)).item()
 
         cost = target_dependent_term + target_independent_term
