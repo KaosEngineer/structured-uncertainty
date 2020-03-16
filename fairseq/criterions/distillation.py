@@ -81,7 +81,6 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
         print(ensemble_logits.min().item())
         teacher_probs = F.softmax(ensemble_logits / temp, dim=-1)
-        assert torch.all(teacher_probs != 0).item(), f'{torch.min(teacher_probs).item()}'
         # Smooth for num. stability:
         probs_mean = 1 / teacher_probs.size(-1)
         # Subtract mean, scale down, add mean back
