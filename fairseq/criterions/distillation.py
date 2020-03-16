@@ -77,7 +77,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         logits = net_output[0]
 
         alphas = torch.exp(logits / temp)
-        precision = torch.sum(alphas, dim=-1)
+        precision = torch.sum(alphas, dim=-1, dtype=torch.float)
         assert torch.all(torch.isfinite(precision)).item()
 
         probs_mean = 1 / ensemble_logits.size(-1)
@@ -94,7 +94,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
         # Define the cost in two parts (dependent on targets and independent of targets)
         target_independent_term = (torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1, dtype=torch.float)
-                                   - torch.lgamma(precision + self.smooth_val).float())
+                                   - torch.lgamma(precision + self.smooth_val))
         assert torch.all(torch.isfinite(target_independent_term)).item(), target_independent_term
 
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-2, dtype=torch.float)
