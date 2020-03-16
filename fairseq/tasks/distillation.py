@@ -58,6 +58,7 @@ class DistillationTask(TranslationTask):
         # Optimize ensemble for generation (includes setting .eval())
         for model in models:
             model.make_generation_fast_(need_attn=False)
+            model.cuda()
             if args.fp16:
                 model.half()
 
@@ -114,11 +115,11 @@ class DistillationTask(TranslationTask):
         ensemble_logits = []
 
         for model in self.ensemble:
-            if use_cuda:
-                model.cuda()
+            # if use_cuda:
+            # model.cuda()
             logits, _ = model(**sample['net_input'])
             ensemble_logits.append(logits)
-            model.cpu()
+            # model.cpu()
 
         sample['ensemble_logits'] = torch.stack(ensemble_logits, dim=2)
         return sample
