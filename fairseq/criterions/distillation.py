@@ -74,19 +74,19 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         # TODO add support for mixtures
         # TODO somehow we need to anneal temperature
 
-        logits = net_output[0].float()
-        ensemble_logits = ensemble_logits.float()
+        logits = net_output[0]
 
         alphas = torch.exp(logits / temp)
         precision = torch.sum(alphas, dim=-1)
+        assert torch.all(torch.isfinite(precision)).item()
 
-        teacher_probs = F.softmax(ensemble_logits / temp, dim=-1)
+        probs_mean = 1 / ensemble_logits.size(-1)
+        teacher_probs = self.tp_scaling * F.softmax(ensemble_logits / temp, dim=-1) + (1 - self.tp_scaling) * probs_mean
         # Smooth for num. stability:
-        probs_mean = 1 / teacher_probs.size(-1)
         # Subtract mean, scale down, add mean back
         # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
         # (or interpolate between true and uniform distributions)
-        teacher_probs = self.tp_scaling * teacher_probs + (1 - self.tp_scaling) * probs_mean
+        # teacher_probs = self.tp_scaling * teacher_probs + (1 - self.tp_scaling) * probs_mean
         assert torch.all(teacher_probs != 0).item(), f'{torch.min(teacher_probs).item()}'
 
         log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.smooth_val), dim=-2)
