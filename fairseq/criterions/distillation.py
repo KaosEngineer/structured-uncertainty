@@ -48,7 +48,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.smooth_val = 1e-2
+        self.smooth_val = 1e-4
         self.tp_scaling = 1 - 1e-2
         self.temp = 1  # TODO anneal
 
@@ -74,7 +74,8 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         # TODO add support for mixtures
         # TODO somehow we need to anneal temperature
 
-        logits = net_output[0]
+        logits = net_output[0].float()
+        ensemble_logits = ensemble_logits.float()
 
         alphas = torch.exp(logits / temp)
         precision = torch.sum(alphas, dim=-1)
