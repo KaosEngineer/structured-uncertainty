@@ -49,7 +49,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
         self.smooth_val = 1e-4
-        self.tp_scaling = 1 - 1e-2
+        self.tp_scaling = 1 - 1e-4
         self.temp = 1  # TODO anneal
 
     def forward(self, model, sample, reduce=True):
@@ -70,7 +70,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         }
         return loss, sample_size, logging_output
 
-    def compute_loss(self, net_output, ensemble_logits, sample, reduce, temp=1.0):
+    def compute_loss(self, net_output, ensemble_logits, sample, reduce, temp=10.0):
         # TODO add support for mixtures
         # TODO somehow we need to anneal temperature
 
