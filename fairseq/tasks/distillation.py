@@ -54,7 +54,7 @@ class DistillationTask(TranslationTask):
             args.ensemble_paths.split(','),
             task=TranslationTask.setup_task(args, **kwargs)
         )
-        use_cuda = torch.cuda.is_available() and not self.args.cpu
+        use_cuda = torch.cuda.is_available() and not args.cpu
         # Optimize ensemble for generation (includes setting .eval())
         for model in models:
             model.make_generation_fast_(need_attn=False)
