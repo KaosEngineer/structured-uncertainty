@@ -113,12 +113,10 @@ class DistillationTask(TranslationTask):
     def compute_ensemble_logits(self, sample):
         batch_size, num_tokens = sample['target'].size()
         ens_size, vocab_size = len(self.ensemble), len(self.tgt_dict)
-        ensemble_logits = torch.empty((batch_size, num_tokens, ens_size, vocab_size),
-                                      dtype=torch.half if self.args.fp16 else torch.float,
-                                      device='cpu' if self.args.cpu else 'cuda')
+        sample['ensemble_logits'] = torch.empty((batch_size, num_tokens, ens_size, vocab_size),
+                                                dtype=torch.half if self.args.fp16 else torch.float,
+                                                device='cpu' if self.args.cpu else 'cuda')
 
         for i, model in enumerate(self.ensemble):
-            ensemble_logits[:, :, i] = model(**sample['net_input'])[0]
-
-        sample['ensemble_logits'] = ensemble_logits
+            sample['ensemble_logits'][:, :, i] = model(**sample['net_input'])[0]
         return sample
