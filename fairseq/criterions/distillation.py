@@ -48,8 +48,8 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.smooth_val = 1e-4
-        self.tp_scaling = 1 - 1e-2
+        self.smooth_val = 1e-8
+        self.tp_scaling = 1 - 1e-8
         self.temp = 1  # TODO anneal
 
     def forward(self, model, sample, reduce=True):
@@ -74,30 +74,30 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         # TODO add support for mixtures
         # TODO somehow we need to anneal temperature
 
-        logits = net_output[0]
+        logits = net_output[0].float()
+        ensemble_logits = ensemble_logits.float()
 
         alphas = torch.exp(logits / temp)
-        precision = torch.sum(alphas, dim=-1, dtype=torch.float)
-        assert torch.all(torch.isfinite(precision)).item()
+        precision = torch.sum(alphas, dim=-1)
 
         probs_mean = 1 / ensemble_logits.size(-1)
-        teacher_probs = self.tp_scaling * F.softmax(ensemble_logits / temp, dim=-1) + (1 - self.tp_scaling) * probs_mean
+        teacher_probs = self.tp_scaling * utils.softmax(ensemble_logits / temp, dim=-1) + (1 - self.tp_scaling) * probs_mean
         # Smooth for num. stability:
         # Subtract mean, scale down, add mean back
         # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
         # (or interpolate between true and uniform distributions)
         # teacher_probs = self.tp_scaling * teacher_probs + (1 - self.tp_scaling) * probs_mean
-        assert torch.all(teacher_probs != 0).item(), f'{torch.min(teacher_probs).item()}'
+        assert torch.all(teacher_probs != 0).item()
 
         log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.smooth_val), dim=-2)
         assert torch.all(torch.isfinite(log_teacher_probs_geo_mean)).item()
 
         # Define the cost in two parts (dependent on targets and independent of targets)
-        target_independent_term = (torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1, dtype=torch.float)
+        target_independent_term = (torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1)
                                    - torch.lgamma(precision + self.smooth_val))
-        assert torch.all(torch.isfinite(target_independent_term)).item(), target_independent_term
+        assert torch.all(torch.isfinite(target_independent_term)).item()
 
-        target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1, dtype=torch.float)
+        target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1)
         assert torch.all(torch.isfinite(target_dependent_term)).item()
 
         cost = target_dependent_term + target_independent_term

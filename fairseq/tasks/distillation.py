@@ -54,12 +54,14 @@ class DistillationTask(TranslationTask):
             args.ensemble_paths.split(','),
             task=TranslationTask.setup_task(args, **kwargs)
         )
-
+        use_cuda = torch.cuda.is_available() and not self.args.cpu
         # Optimize ensemble for generation (includes setting .eval())
         for model in models:
             model.make_generation_fast_(need_attn=False)
             if args.fp16:
                 model.half()
+            if use_cuda:
+                model.cuda()
 
         return cls(args, src_dict, tgt_dict, models)
 
@@ -93,13 +95,13 @@ class DistillationTask(TranslationTask):
         optimizer.backward(loss)
         return loss, sample_size, logging_output
 
+    @torch.no_grad()
     def valid_step(self, sample, model, criterion):
         model.eval()
 
         sample = self.compute_ensemble_logits(sample)
 
-        with torch.no_grad():
-            loss, sample_size, logging_output = criterion(model, sample)
+        loss, sample_size, logging_output = criterion(model, sample)
         return loss, sample_size, logging_output
 
     def inference_step(self, generator, models, sample, prefix_tokens=None):
@@ -109,16 +111,12 @@ class DistillationTask(TranslationTask):
 
     @torch.no_grad()
     def compute_ensemble_logits(self, sample):
-        use_cuda = torch.cuda.is_available() and not self.args.cpu
 
         ensemble_logits = []
 
         for model in self.ensemble:
-            if use_cuda:
-                model.cuda()
             logits, _ = model(**sample['net_input'])
             ensemble_logits.append(logits)
-            model.cpu()
 
         sample['ensemble_logits'] = torch.stack(ensemble_logits, dim=2)
         return sample
