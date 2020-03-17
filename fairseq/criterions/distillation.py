@@ -110,7 +110,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(cost)
+            return torch.sum(cost, dim=0) / torch.sum(~pad_mask, dtype=torch.float)
         return cost
 
     @staticmethod
