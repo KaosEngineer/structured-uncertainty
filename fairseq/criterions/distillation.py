@@ -103,7 +103,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         cost = target_dependent_term + target_independent_term
         assert torch.all(torch.isfinite(cost)).item()
 
-        cost *= temp ** 2
+        # cost *= temp ** 2
 
         # mask loss for padding tokens
         pad_mask = sample['target'].eq(self.padding_idx)
