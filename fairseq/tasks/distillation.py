@@ -111,12 +111,13 @@ class DistillationTask(TranslationTask):
 
     @torch.no_grad()
     def compute_ensemble_logits(self, sample):
+        batch_size, num_tokens = sample['target'].size()
+        ens_size, vocab_size = len(self.ensemble), len(self.tgt_dict)
+        ensemble_logits = torch.empty((batch_size, num_tokens, ens_size, vocab_size), dtype=torch.half if self.args.fp16 else torch.float)
 
-        ensemble_logits = []
-
-        for model in self.ensemble:
+        for i, model in enumerate(self.ensemble):
             logits, _ = model(**sample['net_input'])
-            ensemble_logits.append(logits)
+            ensemble_logits[:, :, i] = logits
 
-        sample['ensemble_logits'] = torch.stack(ensemble_logits, dim=2)
+        sample['ensemble_logits'] = ensemble_logits
         return sample
