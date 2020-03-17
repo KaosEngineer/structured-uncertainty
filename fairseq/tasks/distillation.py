@@ -116,8 +116,7 @@ class DistillationTask(TranslationTask):
         ensemble_logits = torch.empty((batch_size, num_tokens, ens_size, vocab_size), dtype=torch.half if self.args.fp16 else torch.float)
 
         for i, model in enumerate(self.ensemble):
-            logits, _ = model(**sample['net_input'])
-            ensemble_logits[:, :, i] = logits
+            ensemble_logits[:, :, i] = model(**sample['net_input'])[0]
 
         sample['ensemble_logits'] = ensemble_logits
         return sample
