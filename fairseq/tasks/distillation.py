@@ -16,10 +16,19 @@ class DistillationTask(TranslationTask):
     def add_args(parser):
         TranslationTask.add_args(parser)
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
+        parser.add_argument('--anneal-start', help='First update from which to start temperature annealing')
+        parser.add_argument('--anneal-end', help='Last update for annealing')
+        parser.add_argument('--init-temp', default=10)
+        parser.add_argument('--final-temp', default=1)
 
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
         self.ensemble = models
+        self.anneal_start = args.anneal_start
+        self.anneal_end = args.anneal_end
+        self.init_temp = args.init_temp
+        self.final_temp = args.final_temp
+        self.temp = args.init_temp
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -89,6 +98,7 @@ class DistillationTask(TranslationTask):
 
         sample = self.compute_ensemble_logits(sample)
 
+        criterion.temp = self.temp
         loss, sample_size, logging_output = criterion(model, sample)
         if ignore_grad:
             loss *= 0
@@ -120,3 +130,12 @@ class DistillationTask(TranslationTask):
         for i, model in enumerate(self.ensemble):
             sample['ensemble_logits'][:, :, i] = model(**sample['net_input'])[0]
         return sample
+
+    def update_step(self, num_updates):
+        if num_updates < self.anneal_start:
+            self.temp = self.init_temp
+        elif num_updates > self.anneal_end:
+            self.temp = self.final_temp
+        else:
+            progress = (num_updates - self.anneal_start) / (self.anneal_end - self.anneal_start)
+            self.temp = self.init_temp + (self.final_temp - self.init_temp) * progress
