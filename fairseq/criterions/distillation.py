@@ -93,7 +93,6 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         # (or interpolate between true and uniform distributions)
         # teacher_probs = self.tp_scaling * teacher_probs + (1 - self.tp_scaling) * probs_mean
         assert torch.all(teacher_probs != 0).item()
-        # TODO average loss wrt number of classes
         log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.smooth_val), dim=-2)
         assert torch.all(torch.isfinite(log_teacher_probs_geo_mean)).item()
 
@@ -112,7 +111,6 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         pad_mask = model.get_targets(sample).eq(self.padding_idx)
         cost.masked_fill_(pad_mask, 0.)
 
-        # TODO average wrt number of examples
         if reduce:
             return torch.sum(cost)
         return cost
