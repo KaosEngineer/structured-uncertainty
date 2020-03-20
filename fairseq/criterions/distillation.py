@@ -108,7 +108,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         assert torch.all(torch.isfinite(cost)).item()
 
         # mask loss for padding tokens
-        pad_mask = model.get_targets(sample).eq(self.padding_idx)
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
