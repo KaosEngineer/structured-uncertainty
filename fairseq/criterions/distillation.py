@@ -79,6 +79,8 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         logits = net_output[0].float()
         ensemble_logits = ensemble_logits.float()
 
+        num_classes = ensemble_logits.size(-1)
+
         # TODO transform logits with softlimit(x)=5tanh(x), x>0, x, x<0
         # (or C+x/100, x>C)
 
@@ -112,7 +114,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(cost)
+            return torch.sum(cost) / num_classes
         return cost
 
     @torch.no_grad()
