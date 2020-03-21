@@ -16,10 +16,10 @@ class DistillationTask(TranslationTask):
     def add_args(parser):
         TranslationTask.add_args(parser)
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
-        parser.add_argument('--anneal-start', help='First update from which to start temperature annealing')
-        parser.add_argument('--anneal-end', help='Last update for annealing')
-        parser.add_argument('--init-temp', default=10)
-        parser.add_argument('--final-temp', default=1)
+        parser.add_argument('--anneal-start', type=int, help='First update from which to start temperature annealing')
+        parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
+        parser.add_argument('--init-temp', type=float, default=10)
+        parser.add_argument('--final-temp', type=float, default=1)
 
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
