@@ -6,6 +6,12 @@ from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 
 
+@torch.jit.script
+def soft_threshold(x, thresh: float = 10, coef: float = 0.01):
+    mask = x > thresh
+    return torch.where(mask, thresh + (x - thresh) * coef, x)
+
+
 class DirichletEnDDLoss(object):
     """Standard Negative Log-likelihood of the ensemble predictions"""
 
@@ -81,14 +87,11 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
         num_classes = ensemble_logits.size(-1)
 
-        # TODO transform logits with softlimit(x)=5tanh(x), x>0, x, x<0
-        # (or C+x/100, x>C)
-
-        alphas = torch.exp(logits / temp)
+        alphas = torch.exp(soft_threshold(logits / temp))
         precision = torch.sum(alphas, dim=-1)
 
         probs_mean = 1 / ensemble_logits.size(-1)
-        teacher_probs = self.tp_scaling * utils.softmax(ensemble_logits / temp, dim=-1) + (1 - self.tp_scaling) * probs_mean
+        teacher_probs = self.tp_scaling * utils.softmax(soft_threshold(ensemble_logits / temp), dim=-1) + (1 - self.tp_scaling) * probs_mean
         # Smooth for num. stability:
         # Subtract mean, scale down, add mean back
         # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
