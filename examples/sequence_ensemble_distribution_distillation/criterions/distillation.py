@@ -3,7 +3,7 @@ from torch.nn import functional as F
 import math
 
 from fairseq import utils
-from . import FairseqCriterion, register_criterion
+from fairseq.criterions import FairseqCriterion, register_criterion
 
 
 class DirichletEnDDLoss(object):
