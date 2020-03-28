@@ -95,20 +95,14 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
         # (or interpolate between true and uniform distributions)
         # teacher_probs = self.tp_scaling * teacher_probs + (1 - self.tp_scaling) * probs_mean
-        # TODO get rid of assertions, as they slow down training?
-        assert torch.all(teacher_probs != 0).item()
         log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.smooth_val), dim=-2)
-        assert torch.all(torch.isfinite(log_teacher_probs_geo_mean)).item()
 
         # Define the cost in two parts (dependent on targets and independent of targets)
         target_independent_term = (torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1) - torch.lgamma(precision + self.smooth_val))
-        assert torch.all(torch.isfinite(target_independent_term)).item()
 
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1)
-        assert torch.all(torch.isfinite(target_dependent_term)).item()
 
         cost = target_dependent_term + target_independent_term
-        assert torch.all(torch.isfinite(cost)).item()
 
         # mask loss for padding tokens
         pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
