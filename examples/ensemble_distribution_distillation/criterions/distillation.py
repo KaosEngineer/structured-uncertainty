@@ -47,6 +47,8 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         logits = net_output[0].float()
         ensemble_logits = ensemble_logits.float()
 
+        num_classes = ensemble_logits.size(-1)
+
         alphas = torch.exp(soft_threshold(logits / temp))
         precision = torch.sum(alphas, dim=-1)
 
@@ -71,8 +73,8 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(cost) * temp ** 2
-        return cost * temp ** 2
+            return torch.sum(cost) * temp ** 2 / num_classes
+        return cost * temp ** 2 / num_classes
 
     @torch.no_grad()
     def compute_nll(self, model, net_output, sample, reduce):
