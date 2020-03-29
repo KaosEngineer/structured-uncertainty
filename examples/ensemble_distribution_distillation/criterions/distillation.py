@@ -71,7 +71,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
-            'loss': utils.item(loss.data) if reduce else loss.data,
+            'loss': (utils.item(loss.data) if reduce else loss.data) / self.temp ** 2,
             'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
@@ -109,8 +109,8 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(cost)
-        return cost
+            return torch.sum(cost) * temp ** 2
+        return cost * temp ** 2
 
     @torch.no_grad()
     def compute_nll(self, model, net_output, sample, reduce):
