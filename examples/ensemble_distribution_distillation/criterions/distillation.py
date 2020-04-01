@@ -73,8 +73,8 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(cost) * temp / num_classes
-        return cost * temp / num_classes
+            return torch.sum(cost)
+        return cost
 
     @torch.no_grad()
     def compute_nll(self, model, net_output, sample, reduce):
