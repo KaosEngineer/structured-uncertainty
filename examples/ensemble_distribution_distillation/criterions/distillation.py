@@ -49,11 +49,11 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
         num_classes = ensemble_logits.size(-1)
 
-        alphas = torch.exp(soft_threshold(logits / temp))
+        alphas = torch.exp(logits)
         precision = torch.sum(alphas, dim=-1)
 
         probs_mean = 1 / ensemble_logits.size(-1)
-        teacher_probs = self.tp_scaling * utils.softmax(soft_threshold(ensemble_logits / temp), dim=-1) + (1 - self.tp_scaling) * probs_mean
+        teacher_probs = self.tp_scaling * utils.softmax(ensemble_logits / temp, dim=-1) + (1 - self.tp_scaling) * probs_mean
         # Smooth for num. stability:
         # Subtract mean, scale down, add mean back
         # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
