@@ -10,6 +10,10 @@ from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 
 
+# baseline: ensemble distillation (kl+reverse kl)
+# loss: alpha*ensemble distillation+ensemble distribution distillation
+# temperature: alpha_new=alpha*t, (t-1/t+1)*mean+2/(t+1)*prob
+
 @register_task('distillation')
 class DistillationTask(TranslationTask):
     @staticmethod
