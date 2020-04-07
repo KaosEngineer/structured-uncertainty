@@ -195,13 +195,14 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         logits = net_output[0].float()
         ensemble_logits = ensemble_logits.float()
 
-        num_classes = ensemble_logits.size(-1)
-
-        alphas = torch.exp(logits)
+        alphas = temp * torch.exp(logits)
         precision = torch.sum(alphas, dim=-1)
 
-        probs_mean = 1 / ensemble_logits.size(-1)
-        teacher_probs = self.tp_scaling * utils.softmax(ensemble_logits / temp, dim=-1) + (1 - self.tp_scaling) * probs_mean
+        teacher_probs = model.get_normalized_probs(ensemble_logits, log_probs=False)
+        mean_teacher_probs = teacher_probs.mean(dim=2, keepdim=True)
+
+        teacher_probs = (temp - 1) / (temp + 1) * mean_teacher_probs + 2 / (temp + 1) * teacher_probs
+
         # Smooth for num. stability:
         # Subtract mean, scale down, add mean back
         # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
