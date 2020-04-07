@@ -37,11 +37,10 @@ class ReverseKLCritertion(FairseqCriterion):
         logits = net_output[0]
 
         probs = utils.softmax(logits, dim=-1)
-        teacher_log_probs = utils.log_softmax(ensemble_logits, dim=-1)
+        teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+        log_avg_teacher_probs = torch.log(teacher_probs.mean(2))
 
-        # average loss over all teacher distributions
-        probs = probs.unsqueeze(2).expand_as(teacher_log_probs)
-        loss = torch.nn.functional.kl_div(teacher_log_probs, probs, reduction='none').mean(2).sum(-1)
+        loss = (probs * log_avg_teacher_probs).sum(-1)
 
         # mask loss for padding tokens
         pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
@@ -115,10 +114,9 @@ class ForwardKLCritertion(FairseqCriterion):
 
         log_probs = utils.log_softmax(logits, dim=-1)
         teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+        avg_teacher_probs = teacher_probs.mean(2)
 
-        # average loss over all teacher distributions
-        log_probs = log_probs.unsqueeze(2).expand_as(teacher_probs)
-        loss = torch.nn.functional.kl_div(log_probs, teacher_probs, reduction='none').mean(2).sum(-1)
+        loss = (avg_teacher_probs * log_probs).sum(-1)
 
         # mask loss for padding tokens
         pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
