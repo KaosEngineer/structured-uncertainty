@@ -36,8 +36,8 @@ class ReverseKLCritertion(FairseqCriterion):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         logits = net_output[0]
 
-        probs = model.get_normalized_probs(logits, log_probs=False)
-        teacher_log_probs = model.get_normalized_probs(ensemble_logits, log_probs=True)
+        probs = utils.softmax(logits, dim=-1)
+        teacher_log_probs = utils.log_softmax(ensemble_logits, dim=-1)
 
         # average loss over all teacher distributions
         probs = probs.unsqueeze(2).expand_as(teacher_log_probs)
@@ -113,8 +113,8 @@ class ForwardKLCritertion(FairseqCriterion):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         logits = net_output[0]
 
-        log_probs = model.get_normalized_probs(logits, log_probs=True)
-        teacher_probs = model.get_normalized_probs(ensemble_logits, log_probs=False)
+        log_probs = utils.log_softmax(logits, dim=-1)
+        teacher_probs = utils.softmax(ensemble_logits, dim=-1)
 
         # average loss over all teacher distributions
         log_probs = log_probs.unsqueeze(2).expand_as(teacher_probs)
@@ -198,7 +198,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         alphas = temp * torch.exp(logits)
         precision = torch.sum(alphas, dim=-1)
 
-        teacher_probs = model.get_normalized_probs(ensemble_logits, log_probs=False)
+        teacher_probs = utils.softmax(ensemble_logits, dim=-1)
         mean_teacher_probs = teacher_probs.mean(dim=2, keepdim=True)
 
         teacher_probs = (temp - 1) / (temp + 1) * mean_teacher_probs + 2 / (temp + 1) * teacher_probs
