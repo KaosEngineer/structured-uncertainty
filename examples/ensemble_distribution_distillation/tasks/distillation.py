@@ -54,8 +54,6 @@ class DistillationTask(TranslationTask):
         assert src_dict.pad() == tgt_dict.pad()
         assert src_dict.eos() == tgt_dict.eos()
         assert src_dict.unk() == tgt_dict.unk()
-        print('| [{}] dictionary: {} types'.format(args.source_lang, len(src_dict)))
-        print('| [{}] dictionary: {} types'.format(args.target_lang, len(tgt_dict)))
 
         # Load ensemble
         print('| loading model(s) from {}'.format(args.ensemble_paths))
@@ -98,7 +96,9 @@ class DistillationTask(TranslationTask):
 
         sample = self.compute_ensemble_logits(sample)
 
-        criterion.temp = self.temp
+        if hasattr(criterion, 'temp'):
+            criterion.temp = self.temp
+
         loss, sample_size, logging_output = criterion(model, sample)
         if ignore_grad:
             loss *= 0
