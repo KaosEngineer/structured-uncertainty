@@ -215,7 +215,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1)
 
-        cost = target_dependent_term + target_independent_term
+        cost = (target_dependent_term + target_independent_term) / temp
 
         # mask loss for padding tokens
         pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
