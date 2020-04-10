@@ -20,6 +20,8 @@ def main():
     parser.add_argument('--tgtlang', required=True, help='target language (extracted from S-* lines)')
     args = parser.parse_args()
 
+    tgt_set = set()
+
     with open(args.output + '.' + args.srclang, 'w') as src_h, \
             open(args.output + '.' + args.tgtlang, 'w') as tgt_h, \
             open(args.input) as inp_h:
@@ -31,8 +33,7 @@ def main():
                 src = safe_index(line.rstrip().split('\t'), 1, '')
                 tgt_set = set()
             elif line.startswith('H-'):
-                if src is not None:
-                    tgt_set.add(safe_index(line.rstrip().split('\t'), 2, ''))
+                tgt_set.add(safe_index(line.rstrip().split('\t'), 2, ''))
 
 
 if __name__ == '__main__':
