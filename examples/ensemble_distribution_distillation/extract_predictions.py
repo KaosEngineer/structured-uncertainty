@@ -25,12 +25,14 @@ def main():
             open(args.input) as inp_h:
         for line in tqdm(inp_h):
             if line.startswith('S-'):
-                src = safe_index(line.rstrip().split('\t'), 1, '')
-            elif line.startswith('H-'):
-                if src is not None:
-                    tgt = safe_index(line.rstrip().split('\t'), 2, '')
+                for tgt in tgt_set:
                     print(src, file=src_h)
                     print(tgt, file=tgt_h)
+                src = safe_index(line.rstrip().split('\t'), 1, '')
+                tgt_set = set()
+            elif line.startswith('H-'):
+                if src is not None:
+                    tgt_set.add(safe_index(line.rstrip().split('\t'), 2, ''))
 
 
 if __name__ == '__main__':
