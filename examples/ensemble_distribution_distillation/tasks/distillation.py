@@ -10,10 +10,6 @@ from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 
 
-# baseline: ensemble distillation (kl+reverse kl)
-# loss: alpha*ensemble distillation+ensemble distribution distillation
-# temperature: alpha_new=alpha*t, (t-1/t+1)*mean+2/(t+1)*prob
-
 @register_task('distillation')
 class DistillationTask(TranslationTask):
     @staticmethod
@@ -22,6 +18,7 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
         parser.add_argument('--anneal-start', type=int, help='First update from which to start temperature annealing')
         parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
+        parser.add_argument('--init-from-model', type=int, help='Model index in ensemble_paths to use for initialization')
         parser.add_argument('--init-temp', type=float, default=10)
         parser.add_argument('--final-temp', type=float, default=1)
 
@@ -65,6 +62,7 @@ class DistillationTask(TranslationTask):
             args.ensemble_paths.split(','),
             task=TranslationTask.setup_task(args, **kwargs)
         )
+        assert args.init_from_model is None or args.init_from_model < len(models)
         use_cuda = torch.cuda.is_available() and not args.cpu
         # Optimize ensemble for generation (includes setting .eval())
         for model in models:
@@ -143,3 +141,19 @@ class DistillationTask(TranslationTask):
         else:
             progress = (num_updates - self.anneal_start) / (self.anneal_end - self.anneal_start)
             self.temp = self.init_temp + (self.final_temp - self.init_temp) * progress
+
+    def build_model(self, args):
+        """
+        Build the :class:`~fairseq.models.BaseFairseqModel` instance for this
+        task.
+
+        Args:
+            args (argparse.Namespace): parsed command-line arguments
+
+        Returns:
+            a :class:`~fairseq.models.BaseFairseqModel` instance
+        """
+        from fairseq import models
+        model = models.build_model(args, self)
+        if args.init_from_model is not None:
+            model.load_state_dict(self.ensemble[args.init_from_model].state_dict())
