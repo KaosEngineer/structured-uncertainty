@@ -13,12 +13,11 @@ def safe_index(toks, index, default):
 def main():
     parser = argparse.ArgumentParser(description=(
         'Extract predictions from the stdout of fairseq-generate. '
-        'Keep all hypotheses '
     ))
+    parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True, help='output prefix')
     parser.add_argument('--srclang', required=True, help='source language (extracted from H-* lines)')
     parser.add_argument('--tgtlang', required=True, help='target language (extracted from S-* lines)')
-    parser.add_argument('files', nargs='*', help='input files')
     args = parser.parse_args()
 
     with open(args.output + '.' + args.srclang, 'w') as src_h, \
