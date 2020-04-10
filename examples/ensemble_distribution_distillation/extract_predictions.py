@@ -12,7 +12,7 @@ def safe_index(toks, index, default):
 
 def main():
     parser = argparse.ArgumentParser(description=(
-        'Extract predictions from the stdout of fairseq-generate. '
+        'Extract deduplicated predictions from the stdout of fairseq-generate. '
     ))
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True, help='output prefix')
@@ -27,8 +27,6 @@ def main():
             open(args.input) as inp_h:
         for line in tqdm(inp_h):
             if line.startswith('S-'):
-                if len(tgt_set) != 5:
-                    print(len(tgt_set))
                 for tgt in tgt_set:
                     print(src, file=src_h)
                     print(tgt, file=tgt_h)
