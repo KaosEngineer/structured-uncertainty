@@ -27,6 +27,8 @@ def main():
             open(args.input) as inp_h:
         for line in tqdm(inp_h):
             if line.startswith('S-'):
+                if len(tgt_set) != 5:
+                    print(len(tgt_set))
                 for tgt in tgt_set:
                     print(src, file=src_h)
                     print(tgt, file=tgt_h)
