@@ -157,3 +157,4 @@ class DistillationTask(TranslationTask):
         model = models.build_model(args, self)
         if args.init_from_model is not None:
             model.load_state_dict(self.ensemble[args.init_from_model].state_dict())
+        return model
