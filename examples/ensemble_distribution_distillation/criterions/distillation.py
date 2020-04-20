@@ -63,7 +63,7 @@ class _DistillationCriterionBase(FairseqCriterion):
 
 
 @register_criterion('mean_reverse_kl_distillation')
-class ReverseKLCritertion(_DistillationCriterionBase):
+class MeanReverseKLCritertion(_DistillationCriterionBase):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         logits = net_output[0]
 
@@ -83,7 +83,7 @@ class ReverseKLCritertion(_DistillationCriterionBase):
 
 
 @register_criterion('reverse_kl_mean_distillation')
-class ReverseKLCritertion(_DistillationCriterionBase):
+class ReverseKLMeanCritertion(_DistillationCriterionBase):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         logits = net_output[0]
 
@@ -102,7 +102,7 @@ class ReverseKLCritertion(_DistillationCriterionBase):
 
 
 @register_criterion('mean_forward_kl_distillation')
-class ForwardKLCritertion(_DistillationCriterionBase):
+class MeanForwardKLCritertion(_DistillationCriterionBase):
 
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         logits = net_output[0]
@@ -124,7 +124,7 @@ class ForwardKLCritertion(_DistillationCriterionBase):
 
 
 @register_criterion('forward_kl_mean_distillation')
-class ForwardKLCritertion(_DistillationCriterionBase):
+class ForwardKLMeanCritertion(_DistillationCriterionBase):
 
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         logits = net_output[0]
