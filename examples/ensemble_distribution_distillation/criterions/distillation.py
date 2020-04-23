@@ -152,6 +152,26 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         self.tp_scaling = 1 - 1e-8
         self.temp = 1
 
+    def forward(self, model, sample, reduce=True):
+        # batch x len x n_tokens
+        net_output = model(**sample['net_input'])
+
+        # batch x len x ensemble_size x n_tokens
+        ensemble_logits = sample['ensemble_logits']
+
+        loss = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce, temp=self.temp)
+        nll_loss = self.compute_nll(model, net_output, sample, reduce=reduce)
+
+        sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
+        logging_output = {
+            'loss': (utils.item(loss.data) if reduce else loss.data),
+            'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
+            'ntokens': sample['ntokens'],
+            'nsentences': sample['target'].size(0),
+            'sample_size': sample_size,
+        }
+        return loss, sample_size, logging_output
+
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce, temp):
         # TODO add support for mixtures
 
