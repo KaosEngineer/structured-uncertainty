@@ -169,7 +169,7 @@ class DistillationTask(TranslationTask):
         if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
             freeze_module_params(model.decoder)
-            if model.share_input_output_embed:
+            if model.decoder.share_input_output_embed:
                 model.decoder.embed_tokens.weight.requires_grad = True
             else:
                 model.decoder.embed_out.requires_grad = True
