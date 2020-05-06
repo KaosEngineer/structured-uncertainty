@@ -32,7 +32,7 @@ class DistillationTask(TranslationTask):
         self.final_temp = args.final_temp
         self.temp = args.init_temp
         self.freeze_weights_until = args.freeze_weights_until
-        self.unfreeze_model =self.freeze_weights_until is not None and self.freeze_weights_until > 0
+        self.unfreeze_model = self.freeze_weights_until is not None and self.freeze_weights_until > 0
 
     @classmethod
     def setup_task(cls, args, **kwargs):
