@@ -151,7 +151,7 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
 
     @staticmethod
     def add_args(parser):
-        super().add_args(parser)
+        _DistillationCriterionBase.add_args(parser)
         parser.add_argument('--parametrization', choices=parametrization_options.keys(), default='exp')
 
     def __init__(self, args, task):
