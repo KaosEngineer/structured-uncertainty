@@ -25,9 +25,12 @@ parser.add_argument('ood_path', type=str,
                     help='Path of directory containing out-of-domain uncertainties.')
 parser.add_argument('output_path', type=str,
                     help='Path of directory where to save results.')
+parser.add_argument('--nbest', type=int, default=5,
+                    help='Path of directory where to save results.')
+parser.add_argument('--top', action='store_true',
+                    help='Path of directory where to save results.')
 
-
-def load_uncertainties(path):
+def load_uncertainties(path, n_best=5, top=False):
     eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float32)
     exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float32)
     mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float32)
@@ -37,14 +40,14 @@ def load_uncertainties(path):
     aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float32)
     npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float32)
     unc_dict = {'entropy_of_expected': eoe,
-            'expected_entropy': exe,
-            'mutual_informaiton': mi,
-            'EPKL': epkl,
-            'score': score,
-            'AEP_TU': aep_tu,
-            'AEP_DU': aep_du,
-            'NPMI': npmi,
-            'SCORE-NPMI': aep_du-score}
+                'expected_entropy': exe,
+                'mutual_informaiton': mi,
+                'EPKL': epkl,
+                'score': score,
+                'AEP_TU': aep_tu,
+                'AEP_DU': aep_du,
+                'NPMI': npmi,
+                'SCORE-NPMI': aep_du - score}
     if os.path.exists(os.path.join(path, 'xbleu.txt')):
         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
         unc_dict['XBLEU'] = xbleu
@@ -52,11 +55,18 @@ def load_uncertainties(path):
         xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
         unc_dict['XWER'] = xwer
 
+    for key in unc_dict.keys():
+        uncertainties = unc_dict[key]
+        if top:
+            unc_dict[key] = np.reshape(uncertainties, [-1, n_best])[:, 0]
+            print('Went to top...')
+        else:
+            unc_dict[key] = np.mean(np.reshape(uncertainties, [-1, n_best]), axis=1)
     return unc_dict
 
 
 def eval_ood_detect(in_uncertainties, out_uncertainties, save_path):
-    for mode in ['PR', 'ROC']:
+    for mode in ['ROC']:
         for key in in_uncertainties.keys():
             ood_detect(in_uncertainties[key],
                        out_uncertainties[key],
@@ -66,7 +76,6 @@ def eval_ood_detect(in_uncertainties, out_uncertainties, save_path):
 
 
 def ood_detect(in_measure, out_measure, measure_name, save_path, mode):
-
     # if out_measure.shape[0] > in_measure.shape[0]:
     #     out_measure = out_measure[:in_measure.shape[0]]
     # assert out_measure.shape[0] == in_measure.shape[0]
@@ -74,7 +83,7 @@ def ood_detect(in_measure, out_measure, measure_name, save_path, mode):
     scores = np.asarray(scores, dtype=np.float128)
 
     domain_labels = np.concatenate((np.zeros_like(in_measure, dtype=np.int32),
-                                   np.ones_like(out_measure, dtype=np.int32)), axis=0)
+                                    np.ones_like(out_measure, dtype=np.int32)), axis=0)
 
     if mode == 'PR':
         precision, recall, thresholds = precision_recall_curve(domain_labels, scores)
@@ -125,9 +134,11 @@ def main():
     #     os.makedirs(args.output_path)
 
     # Get dictionary of uncertainties.
-    id_uncertainties = load_uncertainties(args.id_path)
-    ood_uncertainties = load_uncertainties(args.ood_path)
+    id_uncertainties = load_uncertainties(args.id_path, n_best=args.nbest, top=args.top)
+    ood_uncertainties = load_uncertainties(args.ood_path, n_best=args.nbest, top=args.top)
 
+    with open(os.path.join(args.output_path, 'results.txt'), 'a') as f:
+        f.write(f'--OOD DETECT N-BEST {args.top} --\n')
     eval_ood_detect(in_uncertainties=id_uncertainties,
                     out_uncertainties=ood_uncertainties,
                     save_path=args.output_path)

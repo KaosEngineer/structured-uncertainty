@@ -56,6 +56,7 @@ def main():
         results[key] = np.round(aupr*100, 3)
 
     with open(os.path.join(args.path, 'results.txt'), 'a') as f:
+        f.write(f'--TOKEN ERROR DETECT --\n')
         f.write(f'Errors: {np.sum(error_labels)} / Words {error_labels.shape[0]}\n')
         for key in results.keys():
             f.write(f'{key}: {results[key]}\n')

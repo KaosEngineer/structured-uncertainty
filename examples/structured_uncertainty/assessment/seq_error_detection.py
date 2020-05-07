@@ -1,5 +1,5 @@
 import numpy as np
-import os
+import os, sys
 from sacrebleu import corpus_bleu, sentence_bleu
 import argparse
 import subprocess
@@ -15,7 +15,10 @@ parser.add_argument('path', type=str,
                     help='Path of directory containing in-domain uncertainties.')
 parser.add_argument('--wer', action='store_true',
                     help='Whether to evaluate using WER instead of BLEU')
-
+parser.add_argument('--nbest', type=int, default=5,
+                    help='Path of directory where to save results.')
+parser.add_argument('--top', action='store_true',
+                    help='Path of directory where to save results.')
 
 def get_wer(i, path):
     subprocess.run(f"~/sclite -r {path}/sorted_refs.txt -h {path}/hypos_{i}.txt -i rm -o all", shell=True)
@@ -24,8 +27,10 @@ def get_wer(i, path):
         capture_output=True, shell=True).stdout)
 
 
-def get_sentence_wer(path):
+def get_sentence_wer(path, refs, hypos):
+
     if not os.path.exists(f"{path}/wers.txt"):
+        print("Getting WERS...)")
         subprocess.run(f"~/sclite -r {path}/refs.txt -h {path}/hypos.txt -i rm -o all", shell=True)
     subprocess.run(
         f" grep -v '-'  {path}/hypos.txt.sys | egrep -v '[A-Z]' | egrep -v '=' | sed 's/|//g' | egrep '[0-9]+' | awk '{{print $8}}' > {path}/wers.txt",
@@ -48,7 +53,7 @@ def reject_predictions_wer(refs, hypos, measure, path,
 
     assert measure[inds[0]] >= measure[inds[-1]]
 
-    swers = get_sentence_wer(path)
+    swers = get_sentence_wer(path, refs, hypos)
     sorted_swers = swers[inds]
     # sorted_refs = refs[inds]
     # sorted_hypos = hypos[inds]
@@ -218,7 +223,34 @@ def reject_predictions_bleu(refs, hypos, measure, path,
     #     f.write(f'Rejection Ratio using {measure_name}: {np.round(rejection_ratio, 1)}\n')
 
 
-def load_uncertainties(path):
+# def load_uncertainties(path, n):
+#     eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float32)
+#     exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float32)
+#     mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float32)
+#     epkl = np.loadtxt(os.path.join(path, 'epkl.txt'), dtype=np.float32)
+#     score = np.loadtxt(os.path.join(path, 'score.txt'), dtype=np.float32)
+#     aep_tu = np.loadtxt(os.path.join(path, 'aep_tu.txt'), dtype=np.float32)
+#     aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float32)
+#     npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float32)
+#     unc_dict = {'Total Uncertainty': eoe,
+#             'SCR-PE': score,
+#             'Data Uncertainty': exe,
+#             'E-SCR': aep_du,
+#             'Mutual Information': mi,
+#             'EPKL': epkl,
+#             'SCR-EP': aep_tu,
+#             'EPMI-EP': npmi,
+#             'EPMI-PE': aep_du - score}
+#     if os.path.exists(os.path.join(path, 'xbleu.txt')):
+#         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
+#         unc_dict['XBLEU'] = xbleu
+#     if os.path.exists(os.path.join(path, 'xwer.txt')):
+#         xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
+#         unc_dict['XWER'] = xwer
+#
+#     return unc_dict
+
+def load_uncertainties(path, n_best=5, top=False):
     eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float32)
     exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float32)
     mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float32)
@@ -233,8 +265,7 @@ def load_uncertainties(path):
             'E-SCR': aep_du,
             'Mutual Information': mi,
             'EPKL': epkl,
-            'SCR-EP'
-            'ё': aep_tu,
+            'SCR-EP': aep_tu,
             'EPMI-EP': npmi,
             'EPMI-PE': aep_du - score}
     if os.path.exists(os.path.join(path, 'xbleu.txt')):
@@ -244,19 +275,28 @@ def load_uncertainties(path):
         xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
         unc_dict['XWER'] = xwer
 
+    for key in unc_dict.keys():
+        uncertainties = unc_dict[key]
+        if top:
+            unc_dict[key] = np.reshape(uncertainties, [-1, n_best])[:, 0]
+            print('Went to top...')
+        else:
+            unc_dict[key] = np.mean(np.reshape(uncertainties, [-1, n_best]), axis=1)
     return unc_dict
 
 
-
-def load_text(path):
+def load_text(path, nbest=5):
     refs, hypos = [], []
     with open(os.path.join(path, 'refs.txt'), 'r') as f:
         for line in f.readlines():
             refs.append(line[1:-1])
 
     with open(os.path.join(path, 'hypos.txt'), 'r') as f:
+        count=0
         for line in f.readlines():
-            hypos.append(line[1:-1])
+            if count % nbest == 0:
+                hypos.append(line[1:-1])
+            count += 1
 
     return refs, hypos
 
@@ -264,10 +304,10 @@ def load_text(path):
 def main():
     args = parser.parse_args()
 
-    refs, hypos = load_text(args.path)
-    uncertainties = load_uncertainties(args.path)
 
     if args.wer:
+        refs, hypos = load_text(args.path, nbest=1)
+        uncertainties = load_uncertainties(args.path, n_best=args.nbest, top=args.top)
         wer_dict = {}
         for key in uncertainties.keys():
             wer, random_wer, percentage, perfect_wer, auc_rr = reject_predictions_wer(refs, hypos, uncertainties[key],
@@ -286,9 +326,12 @@ def main():
         plt.close()
 
         with open(os.path.join(args.path, 'results.txt'), 'a') as f:
+            f.write(f'--SEQ ERROR DETECT N-BEST {args.top} --\n')
             for key in wer_dict.keys():
                 f.write('AUC-RR using ' + key + ": " + str(np.round(wer_dict[key][-1], 1)) + '\n')
     else:
+        refs, hypos = load_text(args.path, nbest=args.nbest)
+        uncertainties = load_uncertainties(args.path, n_best=args.nbest, top=args.top)
         bleu_dict = {}
         for key in uncertainties.keys():
             bleus, random_bleu, percentage, perfect_bleu, auc_rr = reject_predictions_bleu(refs, hypos,
@@ -307,6 +350,7 @@ def main():
         plt.close()
 
         with open(os.path.join(args.path, 'results.txt'), 'a') as f:
+            f.write(f'--SEQ ERROR DETECT N-BEST {args.top} --\n')
             for key in bleu_dict.keys():
                 f.write('AUC-RR using ' + key + ": " + str(np.round(bleu_dict[key][-1], 1)) + '\n')
 
