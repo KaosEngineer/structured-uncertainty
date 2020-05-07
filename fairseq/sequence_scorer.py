@@ -209,7 +209,6 @@ class SequenceScorerWithUncertainty(SequenceScorer):
         target_lprobs = torch.stack(target_lprobs, dim=0)
         avg_lprobs = torch.logsumexp(target_lprobs, dim=0) - torch.log(torch.tensor
                                                                       (esz, dtype=torch.float32))
-
         aep_lprobs = target_lprobs.permute(1, 0, 2)
 
         bsz = target_lprobs.size(1)
@@ -224,6 +223,9 @@ class SequenceScorerWithUncertainty(SequenceScorer):
 
             score_i = avg_lprobs_i.sum() / tgt_len
             eos_enscores = torch.sum(aep_lprobs[i][:, :tgt_len], dim=1, keepdim=True)
+            token_aep_tu = -avg_lprobs[i][start_idxs[i]:start_idxs[i] + tgt_len]
+            token_aep_du = -torch.mean(aep_lprobs[i][:, :tgt_len], dim=0)
+            print(token_aep_tu.size(), token_aep_du.size())
             aep_tu, aep_du, aep_nmpi = aep_uncertainty(eos_enscores, tgt_len-1)
             if avg_attn is not None:
                 avg_attn_i = avg_attn[i]
@@ -246,7 +248,10 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                     'entropy_of_expected': tok_unc['entropy_of_expected'][i, :tgt_len],
                     'expected_entropy': tok_unc['expected_entropy'][i, :tgt_len],
                     'mutual_information': tok_unc['mutual_information'][i, :tgt_len],
-                    'EPKL': tok_unc['EPKL'][i, :tgt_len]
+                    'EPKL': tok_unc['EPKL'][i, :tgt_len],
+                    'token-aep-tu': token_aep_tu,
+                    'token-aep-du': token_aep_du,
+                    'token-aep-ku': token_aep_du - token_aep_tu
                 },
                 'sequence_uncertainties': {
                     'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][i, :tgt_len]),
@@ -258,6 +263,7 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                     'aep_du': aep_du.squeeze(),
                     'aep_npmi': aep_nmpi.squeeze(),
                     'score_npmi': aep_du.squeeze()+score_i,
+                    'log-prob': score_i*tgt_len
                 },
             }])
         return hypos

@@ -38,3 +38,13 @@ def aep_uncertainty(eos_enscores, step):
     npmi = data_unc - total_unc
 
     return total_unc, data_unc, npmi
+
+
+def token_aep_uncertainty(pos_enscores):
+    esz = torch.tensor(pos_enscores.size(0), dtype=torch.float32)
+    data_unc = - torch.mean(pos_enscores, dim=0)
+
+    total_unc = -(torch.logsumexp(pos_enscores, dim=0) - torch.log(esz))
+    know_unc = data_unc-total_unc
+
+    return total_unc, data_unc, know_unc

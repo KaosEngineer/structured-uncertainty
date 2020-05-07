@@ -148,7 +148,7 @@ def main(args):
                         print('P-{}\t{}'.format(
                             sample_id,
                             ' '.join(map(
-                                lambda x: '{:.4f}'.format(x),
+                                lambda x: '{:.8f}'.format(x),
                                 hypo['positional_scores'].tolist(),
                             ))
                         ))
@@ -157,7 +157,7 @@ def main(args):
                             print('T-EOE-{}\t{}'.format(
                                 sample_id,
                                 ' '.join(map(
-                                    lambda x: '{:.4f}'.format(x),
+                                    lambda x: '{:.8f}'.format(x),
                                     hypo['token_uncertainties']['entropy_of_expected'].tolist(),
                                 ))
                             ))
@@ -165,7 +165,7 @@ def main(args):
                             print('T-EXE-{}\t{}'.format(
                                 sample_id,
                                 ' '.join(map(
-                                    lambda x: '{:.4f}'.format(x),
+                                    lambda x: '{:.8f}'.format(x),
                                     hypo['token_uncertainties']['expected_entropy'].tolist(),
                                 ))
                             ))
@@ -173,7 +173,7 @@ def main(args):
                             print('T-MI-{}\t{}'.format(
                                 sample_id,
                                 ' '.join(map(
-                                    lambda x: '{:.4f}'.format(x),
+                                    lambda x: '{:.8f}'.format(x),
                                     hypo['token_uncertainties']['mutual_information'].tolist(),
                                 ))
                             ))
@@ -181,12 +181,33 @@ def main(args):
                             print('T-EPKL-{}\t{}'.format(
                                 sample_id,
                                 ' '.join(map(
-                                    lambda x: '{:.4f}'.format(x),
+                                    lambda x: '{:.8f}'.format(x),
                                     hypo['token_uncertainties']['EPKL'].tolist(),
                                 ))
                             ))
+                            print('T-AEP-TU-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['token-aep-tu'].tolist(),
+                                ))
+                            ))
+                            print('T-AEP-DU-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['token-aep-du'].tolist(),
+                                ))
+                            ))
+                            print('T-AEP-KU-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['token-aep-ku'].tolist(),
+                                ))
+                            ))
 
-                            print('SU-{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                            print('SU-{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                                 sample_id,
                                 hypo['sequence_uncertainties']['entropy_of_expected'].float().cpu(),
                                 hypo['sequence_uncertainties']['expected_entropy'].float().cpu(),
@@ -196,7 +217,8 @@ def main(args):
                                 hypo['sequence_uncertainties']['aep_tu'].float().cpu(),
                                 hypo['sequence_uncertainties']['aep_du'].float().cpu(),
                                 hypo['sequence_uncertainties']['aep_npmi'].float().cpu(),
-                                hypo['sequence_uncertainties']['score_npmi'].float().cpu()
+                                hypo['sequence_uncertainties']['score_npmi'].float().cpu(),
+                                hypo['sequence_uncertainties']['log-prob']
                             ))
 
                         if args.print_alignment:

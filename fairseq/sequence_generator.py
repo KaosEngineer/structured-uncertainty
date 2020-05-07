@@ -727,7 +727,7 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             bos_token=None,
             **kwargs
     ):
-        from fairseq.uncertainty import token_uncertainties, aep_uncertainty
+        from fairseq.uncertainty import token_uncertainties, aep_uncertainty, token_aep_uncertainty
         if not self.retain_dropout:
             model.eval()
 
@@ -845,7 +845,6 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                     scores for each hypothesis
             """
             assert bbsz_idx.numel() == eos_scores.numel()
-
             # clone relevant token and attention tensors
             tokens_clone = tokens.index_select(0, bbsz_idx)
             tokens_clone = tokens_clone[:, 1:step + 2]  # skip the first index, which is EOS
@@ -863,10 +862,13 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             aep_tu, aep_du, aep_nmpi = aep_uncertainty(eos_enscores.view(esz, -1), step)
 
             pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
+            pos_enscores = enscores.index_select(1, bbsz_idx)[:, :, :step + 1]
             pos_scores[:, step] = eos_scores
+            pos_enscores[:, :, step] = eos_enscores.view(esz, -1)
             # convert from cumulative to per-position scores
             pos_scores[:, 1:] = pos_scores[:, 1:] - pos_scores[:, :-1]
-
+            pos_enscores[:, :, 1:] = pos_enscores[:, :, 1:] - pos_enscores[:, :, :-1]
+            token_aep_tu, token_aep_du, token_aep_ku = token_aep_uncertainty(pos_enscores)
             # normalize sentence-level scores
             if self.normalize_scores:
                 eos_scores /= (step + 1) ** self.len_penalty
@@ -906,7 +908,11 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                         'token_uncertainties': {'entropy_of_expected': pos_tu[i],
                                                 'expected_entropy': pos_du[i],
                                                 'mutual_information': pos_mi[i],
-                                                'EPKL': pos_epkl[i]},
+                                                'EPKL': pos_epkl[i],
+                                                'token-aep-tu': token_aep_tu[i],
+                                                'token-aep-du': token_aep_du[i],
+                                                'token-aep-ku': token_aep_ku[i]
+                                                },
                         'sequence_uncertainties': {'entropy_of_expected': torch.mean(pos_tu[i]),
                                                    'expected_entropy': torch.mean(pos_du[i]),
                                                    'mutual_information': torch.mean(pos_mi[i]),
@@ -916,6 +922,7 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                                    'aep_du': aep_du[i],
                                                    'aep_npmi': aep_nmpi[i],
                                                    'score_npmi': score+aep_du[i],
+                                                   'log-prob': score*(step + 1)
                                                    }
                     }
 
