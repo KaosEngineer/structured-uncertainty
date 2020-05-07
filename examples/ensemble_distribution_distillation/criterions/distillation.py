@@ -4,16 +4,149 @@ import torch
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
+from fairseq.criterions.label_smoothed_cross_entropy import label_smoothed_nll_loss
 
 
-@torch.jit.script
-def soft_threshold(x, thresh: float = 10, coef: float = 0.01):
-    mask = x > thresh
-    return torch.where(mask, thresh + (x - thresh) * coef, x)
+class _DistillationCriterionBase(FairseqCriterion):
+    def __init__(self, args, task):
+        super().__init__(args, task)
+        self.xent_weight = args.xent_weight
+        self.eps = args.label_smoothing
+
+    @staticmethod
+    def add_args(parser):
+        """Add criterion-specific arguments to the parser."""
+        parser.add_argument('--label-smoothing', default=0., type=float, metavar='D',
+                            help='epsilon for label smoothing, 0 means no label smoothing')
+        parser.add_argument('--xent-weight', default=0, type=float)
+
+    def forward(self, model, sample, reduce=True):
+        # batch x len x n_tokens
+        net_output = model(**sample['net_input'])
+
+        # batch x len x ensemble_size x n_tokens
+        ensemble_logits = sample['ensemble_logits']
+
+        loss = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce)
+
+        lprobs = model.get_normalized_probs(net_output, log_probs=True)
+        lprobs = lprobs.view(-1, lprobs.size(-1))
+        target = model.get_targets(sample, net_output).view(-1, 1)
+
+        xent_loss, nll_loss = label_smoothed_nll_loss(
+            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
+        )
+
+        total_loss = loss + self.xent_weight * xent_loss
+
+        sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
+        logging_output = {
+            'loss': (utils.item(total_loss.data) if reduce else total_loss.data),
+            'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
+            'ntokens': sample['ntokens'],
+            'nsentences': sample['target'].size(0),
+            'sample_size': sample_size,
+        }
+        return total_loss, sample_size, logging_output
+
+    @staticmethod
+    def aggregate_logging_outputs(logging_outputs):
+        """Aggregate logging outputs from data parallel training."""
+        ntokens = sum(log.get('ntokens', 0) for log in logging_outputs)
+        nsentences = sum(log.get('nsentences', 0) for log in logging_outputs)
+        sample_size = sum(log.get('sample_size', 0) for log in logging_outputs)
+        return {
+            'loss': sum(log.get('loss', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'nll_loss': sum(log.get('nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
+            'ntokens': ntokens,
+            'nsentences': nsentences,
+            'sample_size': sample_size,
+        }
+
+
+@register_criterion('mean_reverse_kl_distillation')
+class MeanReverseKLCritertion(_DistillationCriterionBase):
+    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+        logits = net_output[0]
+
+        probs = utils.softmax(logits, dim=-1)
+        teacher_log_probs = utils.log_softmax(ensemble_logits, dim=-1)
+
+        probs = probs.unsqueeze(2).expand_as(teacher_log_probs)
+        loss = torch.nn.functional.kl_div(teacher_log_probs, probs, reduction='none').mean(2).sum(-1)
+
+        # mask loss for padding tokens
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
+        loss.masked_fill_(pad_mask, 0.)
+
+        if reduce:
+            return torch.sum(loss)
+        return loss
+
+
+@register_criterion('reverse_kl_mean_distillation')
+class ReverseKLMeanCritertion(_DistillationCriterionBase):
+    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+        logits = net_output[0]
+
+        probs = utils.softmax(logits, dim=-1)
+        avg_teacher_log_probs = utils.log_softmax(ensemble_logits, dim=-1).mean(2)
+
+        loss = torch.nn.functional.kl_div(avg_teacher_log_probs, probs, reduction='none').sum(-1)
+
+        # mask loss for padding tokens
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
+        loss.masked_fill_(pad_mask, 0.)
+
+        if reduce:
+            return torch.sum(loss)
+        return loss
+
+
+@register_criterion('mean_forward_kl_distillation')
+class MeanForwardKLCritertion(_DistillationCriterionBase):
+
+    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+        logits = net_output[0]
+
+        log_probs = utils.log_softmax(logits, dim=-1)
+        teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+
+        # average loss over all teacher distributions
+        log_probs = log_probs.unsqueeze(2).expand_as(teacher_probs)
+        loss = torch.nn.functional.kl_div(log_probs, teacher_probs, reduction='none').mean(2).sum(-1)
+
+        # mask loss for padding tokens
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
+        loss.masked_fill_(pad_mask, 0.)
+
+        if reduce:
+            return torch.sum(loss)
+        return loss
+
+
+@register_criterion('forward_kl_mean_distillation')
+class ForwardKLMeanCritertion(_DistillationCriterionBase):
+
+    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+        logits = net_output[0]
+
+        log_probs = utils.log_softmax(logits, dim=-1)
+        avg_teacher_probs = utils.softmax(ensemble_logits, dim=-1).mean(2)
+
+        loss = torch.nn.functional.kl_div(log_probs, avg_teacher_probs, reduction='none').sum(-1)
+
+        # mask loss for padding tokens
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
+        loss.masked_fill_(pad_mask, 0.)
+
+        if reduce:
+            return torch.sum(loss)
+        return loss
 
 
 @register_criterion('sequence_distribution_distillation')
-class SequenceDistributionDistillationCritertion(FairseqCriterion):
+class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
 
     def __init__(self, args, task):
         super().__init__(args, task)
@@ -47,13 +180,14 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         logits = net_output[0].float()
         ensemble_logits = ensemble_logits.float()
 
-        num_classes = ensemble_logits.size(-1)
-
-        alphas = torch.exp(logits)
+        alphas = temp * torch.exp(logits)
         precision = torch.sum(alphas, dim=-1)
 
-        probs_mean = 1 / ensemble_logits.size(-1)
-        teacher_probs = self.tp_scaling * utils.softmax(ensemble_logits / temp, dim=-1) + (1 - self.tp_scaling) * probs_mean
+        teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+        mean_teacher_probs = teacher_probs.mean(dim=2, keepdim=True)
+
+        teacher_probs = (temp - 1) / (temp + 1) * mean_teacher_probs + 2 / (temp + 1) * teacher_probs
+
         # Smooth for num. stability:
         # Subtract mean, scale down, add mean back
         # teacher_probs = self.tp_scaling * (teacher_probs - probs_mean) + probs_mean
@@ -66,7 +200,7 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
 
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1)
 
-        cost = target_dependent_term + target_independent_term
+        cost = (target_dependent_term + target_independent_term) / temp
 
         # mask loss for padding tokens
         pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
@@ -75,34 +209,3 @@ class SequenceDistributionDistillationCritertion(FairseqCriterion):
         if reduce:
             return torch.sum(cost)
         return cost
-
-    @torch.no_grad()
-    def compute_nll(self, model, net_output, sample, reduce):
-        lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = model.get_targets(sample, net_output).view(-1, 1)
-        if target.dim() == lprobs.dim() - 1:
-            target = target.unsqueeze(-1)
-        nll_loss = -lprobs.gather(dim=-1, index=target)
-        pad_mask = target.eq(self.padding_idx)
-        if pad_mask.any():
-            nll_loss.masked_fill_(pad_mask, 0.)
-        else:
-            nll_loss = nll_loss.squeeze(-1)
-        if reduce:
-            nll_loss = nll_loss.sum()
-        return nll_loss
-
-    @staticmethod
-    def aggregate_logging_outputs(logging_outputs):
-        """Aggregate logging outputs from data parallel training."""
-        ntokens = sum(log.get('ntokens', 0) for log in logging_outputs)
-        nsentences = sum(log.get('nsentences', 0) for log in logging_outputs)
-        sample_size = sum(log.get('sample_size', 0) for log in logging_outputs)
-        return {
-            'loss': sum(log.get('loss', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
-            'nll_loss': sum(log.get('nll_loss', 0) for log in logging_outputs) / ntokens / math.log(2) if ntokens > 0 else 0.,
-            'ntokens': ntokens,
-            'nsentences': nsentences,
-            'sample_size': sample_size,
-        }
