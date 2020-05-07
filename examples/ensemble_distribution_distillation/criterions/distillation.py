@@ -7,27 +7,11 @@ from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import label_smoothed_nll_loss
 
 
-@torch.jit.script
-def exp_with_max_subtraction(x):
-    """The way they actually do it in softmax"""
-    max_values, max_indices = x.max(dim=-1, keepdim=True)
-    x_sub_max = x - max_values
-    return torch.exp(x_sub_max)
-
-
-prob_parametrization = {
-    'exp': torch.exp,
-    'softplus': torch.nn.functional.softplus,
-    'exp_max_sub': exp_with_max_subtraction,
-}
-
-
 class _DistillationCriterionBase(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
         self.xent_weight = args.xent_weight
         self.eps = args.label_smoothing
-        self.task = task
 
     @staticmethod
     def add_args(parser):
@@ -83,7 +67,9 @@ class _DistillationCriterionBase(FairseqCriterion):
 @register_criterion('mean_reverse_kl_distillation')
 class MeanReverseKLCritertion(_DistillationCriterionBase):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
-        probs = model.get_normalized_probs(net_output)
+        logits = net_output[0]
+
+        probs = utils.softmax(logits, dim=-1)
         teacher_log_probs = utils.log_softmax(ensemble_logits, dim=-1)
 
         probs = probs.unsqueeze(2).expand_as(teacher_log_probs)
@@ -101,7 +87,9 @@ class MeanReverseKLCritertion(_DistillationCriterionBase):
 @register_criterion('reverse_kl_mean_distillation')
 class ReverseKLMeanCritertion(_DistillationCriterionBase):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
-        probs = model.get_normalized_probs(net_output)
+        logits = net_output[0]
+
+        probs = utils.softmax(logits, dim=-1)
         avg_teacher_log_probs = torch.log(utils.softmax(ensemble_logits, dim=-1).mean(2))
 
         loss = torch.nn.functional.kl_div(avg_teacher_log_probs, probs, reduction='none').sum(-1)
@@ -118,7 +106,9 @@ class ReverseKLMeanCritertion(_DistillationCriterionBase):
 @register_criterion('mean_forward_kl_distillation')
 class MeanForwardKLCritertion(_DistillationCriterionBase):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
-        log_probs = model.get_normalized_probs(net_output, log_probs=True)
+        logits = net_output[0]
+
+        log_probs = utils.log_softmax(logits, dim=-1)
         teacher_probs = utils.softmax(ensemble_logits, dim=-1)
 
         # average loss over all teacher distributions
@@ -137,7 +127,9 @@ class MeanForwardKLCritertion(_DistillationCriterionBase):
 @register_criterion('forward_kl_mean_distillation')
 class ForwardKLMeanCritertion(_DistillationCriterionBase):
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
-        log_probs = model.get_normalized_probs(net_output, log_probs=True)
+        logits = net_output[0]
+
+        log_probs = utils.log_softmax(logits, dim=-1)
         avg_teacher_probs = utils.softmax(ensemble_logits, dim=-1).mean(2)
 
         loss = torch.nn.functional.kl_div(log_probs, avg_teacher_probs, reduction='none').sum(-1)
@@ -151,32 +143,72 @@ class ForwardKLMeanCritertion(_DistillationCriterionBase):
         return loss
 
 
+parametrization_options = {'exp': torch.exp, 'softplus': torch.nn.functional.softplus}
+
+
 @register_criterion('sequence_distribution_distillation')
 class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
+
+    @staticmethod
+    def add_args(parser):
+        super().add_args(parser)
+        parser.add_argument('--parametrization', choices=parametrization_options.keys(), default='exp')
+
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.eps = 1e-8
-        self.task = task
-        self.parametrization_func = prob_parametrization[task.parametrization]
+        self.smooth_val = 1e-8
+        self.temp = 1
+        self.parametrization = parametrization_options[args.parametrization]
 
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
-        temp = self.task.temp
+    def forward(self, model, sample, reduce=True):
+        # batch x len x n_tokens
+        net_output = model(**sample['net_input'])
+
+        # batch x len x ensemble_size x n_tokens
+        ensemble_logits = sample['ensemble_logits']
+
+        loss = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce, temp=self.temp)
+
+        lprobs = model.get_normalized_probs(net_output, log_probs=True)
+        lprobs = lprobs.view(-1, lprobs.size(-1))
+        target = model.get_targets(sample, net_output).view(-1, 1)
+
+        xent_loss, nll_loss = label_smoothed_nll_loss(
+            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
+        )
+
+        total_loss = loss + self.xent_weight * xent_loss
+
+        sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
+        logging_output = {
+            'loss': (utils.item(total_loss.data) if reduce else total_loss.data),
+            'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
+            'ntokens': sample['ntokens'],
+            'nsentences': sample['target'].size(0),
+            'sample_size': sample_size,
+        }
+        return total_loss, sample_size, logging_output
+
+    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce, temp):
         # TODO add support for mixtures
 
-        logits = net_output[0]
+        logits = net_output[0].float()
+        ensemble_logits = ensemble_logits.float()
 
-        alphas = temp * self.parametrization_func(logits)
+        alphas = temp * self.parametrization(logits)
         precision = torch.sum(alphas, dim=-1)
 
         teacher_probs = utils.softmax(ensemble_logits, dim=-1)
         mean_teacher_probs = teacher_probs.mean(dim=2, keepdim=True)
 
         teacher_probs = (temp - 1) / (temp + 1) * mean_teacher_probs + 2 / (temp + 1) * teacher_probs
-        log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.eps), dim=-2)
+        log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.smooth_val), dim=-2)
 
         # Define the cost in two parts (dependent on targets and independent of targets)
-        target_independent_term = (torch.sum(torch.lgamma(alphas + self.eps), dim=-1) - torch.lgamma(precision + self.eps))
+        target_independent_term = (torch.sum(torch.lgamma(alphas + self.smooth_val), dim=-1) - torch.lgamma(precision + self.smooth_val))
+
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1)
+
         cost = (target_dependent_term + target_independent_term) / temp
 
         # mask loss for padding tokens
