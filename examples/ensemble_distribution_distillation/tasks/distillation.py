@@ -18,6 +18,8 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
         parser.add_argument('--anneal-start', type=int, help='First update from which to start temperature annealing')
         parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
+        parser.add_argument('--init-from-model', type=int, help='Model index in ensemble_paths to use for initialization')
+        parser.add_argument('--freeze-weights-until', type=int, help='Freeze encoder/decoder weights until a given step')
         parser.add_argument('--init-temp', type=float, default=10)
         parser.add_argument('--final-temp', type=float, default=1)
 
@@ -29,6 +31,8 @@ class DistillationTask(TranslationTask):
         self.init_temp = args.init_temp
         self.final_temp = args.final_temp
         self.temp = args.init_temp
+        self.freeze_weights_until = args.freeze_weights_until
+        self.unfreeze_model = self.freeze_weights_until is not None and self.freeze_weights_until > 0
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -54,8 +58,6 @@ class DistillationTask(TranslationTask):
         assert src_dict.pad() == tgt_dict.pad()
         assert src_dict.eos() == tgt_dict.eos()
         assert src_dict.unk() == tgt_dict.unk()
-        print('| [{}] dictionary: {} types'.format(args.source_lang, len(src_dict)))
-        print('| [{}] dictionary: {} types'.format(args.target_lang, len(tgt_dict)))
 
         # Load ensemble
         print('| loading model(s) from {}'.format(args.ensemble_paths))
@@ -63,6 +65,7 @@ class DistillationTask(TranslationTask):
             args.ensemble_paths.split(','),
             task=TranslationTask.setup_task(args, **kwargs)
         )
+        assert args.init_from_model is None or args.init_from_model < len(models)
         use_cuda = torch.cuda.is_available() and not args.cpu
         # Optimize ensemble for generation (includes setting .eval())
         for model in models:
@@ -98,7 +101,13 @@ class DistillationTask(TranslationTask):
 
         sample = self.compute_ensemble_logits(sample)
 
-        criterion.temp = self.temp
+        if hasattr(criterion, 'temp'):
+            criterion.temp = self.temp
+        if self.unfreeze_model:
+            for p in model.parameters():
+                p.requires_grad = True
+            self.unfreeze_model = False
+
         loss, sample_size, logging_output = criterion(model, sample)
         if ignore_grad:
             loss *= 0
@@ -139,3 +148,35 @@ class DistillationTask(TranslationTask):
         else:
             progress = (num_updates - self.anneal_start) / (self.anneal_end - self.anneal_start)
             self.temp = self.init_temp + (self.final_temp - self.init_temp) * progress
+        if self.freeze_weights_until == num_updates:
+            self.unfreeze_model = True
+
+    def build_model(self, args):
+        """
+        Build the :class:`~fairseq.models.BaseFairseqModel` instance for this
+        task.
+
+        Args:
+            args (argparse.Namespace): parsed command-line arguments
+
+        Returns:
+            a :class:`~fairseq.models.BaseFairseqModel` instance
+        """
+        from fairseq import models
+        model = models.build_model(args, self)
+        if args.init_from_model is not None:
+            model.load_state_dict(self.ensemble[args.init_from_model].state_dict())
+        if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
+            freeze_module_params(model.encoder)
+            freeze_module_params(model.decoder)
+            if model.decoder.share_input_output_embed:
+                model.decoder.embed_tokens.weight.requires_grad = True
+            else:
+                model.decoder.embed_out.requires_grad = True
+        return model
+
+
+def freeze_module_params(m):
+    if m is not None:
+        for p in m.parameters():
+            p.requires_grad = False
