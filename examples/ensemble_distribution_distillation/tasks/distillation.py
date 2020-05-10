@@ -9,6 +9,8 @@ from fairseq.data import (
 from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 
+from ..criterions import prob_parametrization
+
 
 @register_task('distillation')
 class DistillationTask(TranslationTask):
@@ -22,6 +24,7 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--freeze-weights-until', type=int, help='Freeze encoder/decoder weights until a given step')
         parser.add_argument('--init-temp', type=float, default=10)
         parser.add_argument('--final-temp', type=float, default=1)
+        parser.add_argument('--parametrization', choices=prob_parametrization.keys(), default='exp')
 
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
@@ -173,6 +176,25 @@ class DistillationTask(TranslationTask):
                 model.decoder.embed_tokens.weight.requires_grad = True
             else:
                 model.decoder.embed_out.requires_grad = True
+
+        if args.parametrization != 'exp':
+            # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers
+            def patched_get_normalized_probs(self, net_output, log_probs, sample):
+                """Get normalized probabilities (or log probs) from a net's output."""
+
+                if hasattr(self, 'adaptive_softmax') and self.adaptive_softmax is not None:
+                    raise NotImplementedError()
+
+                logits = net_output[0]
+                unnormalized_probs = prob_parametrization[args.parametrization](logits)
+                probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
+                if log_probs:
+                    return probs.log()
+                else:
+                    return probs
+
+            model.get_normalized_probs = patched_get_normalized_probs
+
         return model
 
 
