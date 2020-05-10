@@ -6,7 +6,20 @@ from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import label_smoothed_nll_loss
 
-prob_parametrization = {'exp': torch.exp, 'softplus': torch.nn.functional.softplus}
+
+@torch.jit.script
+def exp_with_max_subtraction(x):
+    """The way they actually do it in softmax"""
+    max_values, max_indices = x.max(dim=-1, keepdim=True)
+    x_sub_max = x - max_values
+    return torch.exp(x_sub_max)
+
+
+prob_parametrization = {
+    'exp': torch.exp,
+    'softplus': torch.nn.functional.softplus,
+    'exp_max_sub': exp_with_max_subtraction,
+}
 
 
 class _DistillationCriterionBase(FairseqCriterion):
