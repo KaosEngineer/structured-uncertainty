@@ -159,36 +159,8 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         self.task = task
         self.parametrization_func = prob_parametrization[task.parametrization]
 
-    def forward(self, model, sample, reduce=True):
-        # batch x len x n_tokens
-        net_output = model(**sample['net_input'])
-
-        # batch x len x ensemble_size x n_tokens
-        ensemble_logits = sample['ensemble_logits']
-
-        loss = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce, temp=self.task.temp)
-
-        lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = model.get_targets(sample, net_output).view(-1, 1)
-
-        xent_loss, nll_loss = label_smoothed_nll_loss(
-            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
-        )
-
-        total_loss = loss + self.xent_weight * xent_loss
-
-        sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
-        logging_output = {
-            'loss': (utils.item(total_loss.data) if reduce else total_loss.data),
-            'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
-            'ntokens': sample['ntokens'],
-            'nsentences': sample['target'].size(0),
-            'sample_size': sample_size,
-        }
-        return total_loss, sample_size, logging_output
-
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce, temp):
+    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+        temp = self.task.temp
         # TODO add support for mixtures
 
         logits = net_output[0]
