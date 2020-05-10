@@ -101,11 +101,8 @@ class DistillationTask(TranslationTask):
                 - logging outputs to display while training
         """
         model.train()
-
         sample = self.compute_ensemble_logits(sample)
 
-        if hasattr(criterion, 'temp'):
-            criterion.temp = self.temp
         if self.unfreeze_model:
             for p in model.parameters():
                 p.requires_grad = True
