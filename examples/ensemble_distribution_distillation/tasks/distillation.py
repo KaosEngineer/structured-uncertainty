@@ -218,7 +218,7 @@ class DistillationTask(TranslationTask):
                     'entropy_of_expected': entropy_of_expected[ind],
                     'expected_entropy': expected_entropy[ind],
                     'mutual_information': mutual_information[ind],
-                    'EPKL': epkl[i].mean()
+                    'EPKL': epkl[ind]
                 }
                 hypo['sequence_uncertainties'] = {
                     'score': scores[ind],
