@@ -200,10 +200,10 @@ class DistillationTask(TranslationTask):
         new_order = new_order.long()
         encoder_out = model.encoder.reorder_encoder_out(encoder_out, new_order)
         logits, attn = model.decoder(prev_output, encoder_out=encoder_out)
-        logits = logits[:, :-1]  # remove logits after last EOS
+        logits = logits[:, :-1, :]  # remove logits after last EOS
 
         unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
-        normalized_probs = model.get_normalized_probs(logits)
+        normalized_probs = model.get_normalized_probs((logits, attn), log_probs=False, sample)
         normalized_logprobs = normalized_probs.log()
 
         mask = (tokens.unsqueeze(-1) != self.tgt_dict.pad()).type(logits.dtype)
