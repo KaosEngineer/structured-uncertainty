@@ -8,6 +8,8 @@ from fairseq.data import (
 )
 from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
+from fairseq.data.data_utils import collate_tokens
+from fairseq.uncertainty import compute_token_dirichlet_uncertainties
 
 from ..criterions import prob_parametrization
 
@@ -36,6 +38,9 @@ class DistillationTask(TranslationTask):
         self.temp = args.init_temp
         self.freeze_weights_until = args.freeze_weights_until
         self.unfreeze_model = self.freeze_weights_until is not None and self.freeze_weights_until > 0
+        self.parametrization = args.parametrization
+        self.criterion = args.criterion
+        self.compute_uncertainty = getattr(args, 'compute_uncertainty', False)
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -123,10 +128,105 @@ class DistillationTask(TranslationTask):
         loss, sample_size, logging_output = criterion(model, sample)
         return loss, sample_size, logging_output
 
+    def build_generator(self, args):
+        if getattr(args, 'score_reference', False):
+            from fairseq.sequence_scorer import SequenceScorer
+            return SequenceScorer(self.target_dictionary)
+        else:
+            from fairseq.sequence_generator import SequenceGenerator, SequenceGeneratorWithAlignment
+            if getattr(args, 'print_alignment', False):
+                return SequenceGeneratorWithAlignment(
+                    self.target_dictionary,
+                    beam_size=getattr(args, 'beam', 5),
+                    max_len_a=getattr(args, 'max_len_a', 0),
+                    max_len_b=getattr(args, 'max_len_b', 200),
+                    min_len=getattr(args, 'min_len', 1),
+                    normalize_scores=(not getattr(args, 'unnormalized', False)),
+                    len_penalty=getattr(args, 'lenpen', 1),
+                    unk_penalty=getattr(args, 'unkpen', 0),
+                    sampling=getattr(args, 'sampling', False),
+                    sampling_topk=getattr(args, 'sampling_topk', -1),
+                    sampling_topp=getattr(args, 'sampling_topp', -1.0),
+                    temperature=getattr(args, 'temperature', 1.),
+                    diverse_beam_groups=getattr(args, 'diverse_beam_groups', -1),
+                    diverse_beam_strength=getattr(args, 'diverse_beam_strength', 0.5),
+                    match_source_len=getattr(args, 'match_source_len', False),
+                    no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
+                )
+            else:
+                return SequenceGenerator(
+                    self.target_dictionary,
+                    beam_size=getattr(args, 'beam', 5),
+                    max_len_a=getattr(args, 'max_len_a', 0),
+                    max_len_b=getattr(args, 'max_len_b', 200),
+                    min_len=getattr(args, 'min_len', 1),
+                    normalize_scores=(not getattr(args, 'unnormalized', False)),
+                    len_penalty=getattr(args, 'lenpen', 1),
+                    unk_penalty=getattr(args, 'unkpen', 0),
+                    sampling=getattr(args, 'sampling', False),
+                    sampling_topk=getattr(args, 'sampling_topk', -1),
+                    sampling_topp=getattr(args, 'sampling_topp', -1.0),
+                    temperature=getattr(args, 'temperature', 1.),
+                    diverse_beam_groups=getattr(args, 'diverse_beam_groups', -1),
+                    diverse_beam_strength=getattr(args, 'diverse_beam_strength', 0.5),
+                    match_source_len=getattr(args, 'match_source_len', False),
+                    no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
+                )
+
+    @torch.no_grad()
     def inference_step(self, generator, models, sample, prefix_tokens=None):
-        # TODO what if model was trained with mixture of Dir()?
-        with torch.no_grad():
-            return generator.generate(models, sample, prefix_tokens=prefix_tokens)
+        hypos_sample = generator.generate(models, sample, prefix_tokens=prefix_tokens)
+
+        # compute uncertainties
+        self.add_uncertainties(sample, hypos_sample, models)
+
+        return hypos_sample
+
+    def add_uncertainties(self, sample, hypos, models):
+        if len(models) != 1:
+            raise NotImplementedError('Uncertainty estimation for ensemble of distilled models is not implemented')
+        model = models[0]
+        encoder_out = model.encoder(**sample['net_input'])
+
+        bsz = sample['nsentences']
+        beam_size = len(hypos[0])
+        device = sample['net_input']['src_tokens'].device
+
+        tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent],
+                                eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad())
+        prev_output = torch.cat([tokens.new_full((bsz * beam_size, 1), self.tgt_dict.eos()), tokens], dim=1)
+
+        new_order = torch.arange(bsz, device=device).view(-1, 1).repeat(1, beam_size).view(-1)
+        new_order = new_order.long()
+        encoder_out = model.encoder.reorder_encoder_out(encoder_out, new_order)
+        logits, attn = model.decoder(prev_output, encoder_out=encoder_out)
+        logits = logits[:, :-1]  # remove logits after last EOS
+
+        unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
+        normalized_probs = model.get_normalized_probs(logits)
+        normalized_logprobs = normalized_probs.log()
+
+        mask = (tokens.unsqueeze(-1) != self.tgt_dict.pad()).type(logits.dtype)
+        # average wrt sequence lengths
+        scores = -(normalized_logprobs.gather(-1, tokens.unsqueeze(-1)) * mask).sum(dim=1) / mask.sum(dim=1)
+        entropy_of_expected, expected_entropy, mutual_information, epkl = compute_token_dirichlet_uncertainties(unnormalized_probs)
+
+        for i, sent in enumerate(hypos):
+            for j, hypo in enumerate(sent):
+                ind = i * beam_size + j
+                hypo['token_uncertainties'] = {
+                    'entropy_of_expected': entropy_of_expected[ind],
+                    'expected_entropy': expected_entropy[ind],
+                    'mutual_information': mutual_information[ind],
+                    'EPKL': epkl[i].mean()
+                }
+                hypo['sequence_uncertainties'] = {
+                    'score': scores[ind],
+                    'entropy_of_expected': entropy_of_expected[ind].mean(),
+                    'expected_entropy': expected_entropy[ind].mean(),
+                    'mutual_information': mutual_information[ind].mean(),
+                    'EPKL': epkl[ind].mean()
+                }
 
     @torch.no_grad()
     def compute_ensemble_logits(self, sample):
