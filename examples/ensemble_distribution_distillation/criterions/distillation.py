@@ -176,9 +176,7 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
 
         # Define the cost in two parts (dependent on targets and independent of targets)
         target_independent_term = (torch.sum(torch.lgamma(alphas + self.eps), dim=-1) - torch.lgamma(precision + self.eps))
-
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1)
-
         cost = (target_dependent_term + target_independent_term) / temp
 
         # mask loss for padding tokens

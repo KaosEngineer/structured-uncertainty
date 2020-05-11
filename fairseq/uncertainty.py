@@ -94,3 +94,26 @@ def token_aep_uncertainty(pos_enscores):
     prex_pos_mkl = eoe_ub - prex_pos_scores
     expr_pos_mkl = eoe_ub - expr_pos_scores
     return expr_pos_scores, eoe_ub, expr_pos_mkl, prex_pos_scores, prex_pos_mkl
+
+
+EPS = 1e-8
+
+
+def entropy(probs, dim=-1):
+    return -(probs * (probs + EPS).log()).sum(dim=dim)
+
+
+def compute_token_dirichlet_uncertainties(dirichlet_params):
+    batch_size, num_tokens, vocab_size = dirichlet_params.size()
+
+    concentrations = dirichlet_params.sum(dim=-1, keepdim=True)
+    expected_dirichlet = dirichlet_params / concentrations
+
+    entropy_of_expected = entropy(expected_dirichlet).sum(dim=1)
+    expected_entropy = (-expected_dirichlet * (
+            torch.digamma(expected_dirichlet + 1) - torch.digamma(expected_dirichlet.sum(dim=-1) + 1)
+    )).sum(dim=1)
+    mutual_information = entropy_of_expected - expected_entropy
+
+    epkl = ((vocab_size - 1) / concentrations).sum(dum=1)
+    return entropy_of_expected, expected_entropy, mutual_information, epkl
