@@ -209,7 +209,8 @@ class DistillationTask(TranslationTask):
         mask = (tokens.unsqueeze(-1) != self.tgt_dict.pad()).type(logits.dtype)
         # average wrt sequence lengths
         scores = -(normalized_logprobs.gather(-1, tokens.unsqueeze(-1)) * mask).sum(dim=1) / mask.sum(dim=1)
-        entropy_of_expected, expected_entropy, mutual_information, epkl = compute_token_dirichlet_uncertainties(unnormalized_probs)
+        entropy_of_expected, expected_entropy, mutual_information, epkl = compute_token_dirichlet_uncertainties(unnormalized_probs,
+                                                                                                                normalized_probs)
 
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent):
