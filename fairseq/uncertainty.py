@@ -109,10 +109,10 @@ def compute_token_dirichlet_uncertainties(dirichlet_params):
     concentrations = dirichlet_params.sum(dim=-1, keepdim=True)
     expected_dirichlet = dirichlet_params / concentrations
 
-    entropy_of_expected = entropy(expected_dirichlet).sum(dim=1)
+    entropy_of_expected = entropy(expected_dirichlet)
     expected_entropy = (-expected_dirichlet * (
-            torch.digamma(expected_dirichlet + 1) - torch.digamma(expected_dirichlet.sum(dim=-1,keepdim=True) + 1)
-    )).sum(dim=1)
+            torch.digamma(expected_dirichlet + 1) - torch.digamma(expected_dirichlet.sum(dim=-1, keepdim=True) + 1)
+    )).sum(dim=-1)
     mutual_information = entropy_of_expected - expected_entropy
 
     epkl = ((vocab_size - 1) / concentrations).sum(dum=1)
