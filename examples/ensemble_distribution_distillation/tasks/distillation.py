@@ -203,7 +203,7 @@ class DistillationTask(TranslationTask):
         logits = logits[:, :-1, :]  # remove logits after last EOS
 
         unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
-        normalized_probs = model.get_normalized_probs((logits, attn), log_probs=False, sample)
+        normalized_probs = model.get_normalized_probs((logits, attn), log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
         mask = (tokens.unsqueeze(-1) != self.tgt_dict.pad()).type(logits.dtype)
@@ -276,7 +276,7 @@ class DistillationTask(TranslationTask):
 
         if args.parametrization != 'exp':
             # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers
-            def patched_get_normalized_probs(self, net_output, log_probs, sample):
+            def patched_get_normalized_probs(self, net_output, log_probs, sample=None):
                 """Get normalized probabilities (or log probs) from a net's output."""
 
                 if hasattr(self, 'adaptive_softmax') and self.adaptive_softmax is not None:
