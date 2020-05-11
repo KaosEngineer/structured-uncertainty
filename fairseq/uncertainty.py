@@ -115,5 +115,5 @@ def compute_token_dirichlet_uncertainties(dirichlet_params):
     )).sum(dim=-1)
     mutual_information = entropy_of_expected - expected_entropy
 
-    epkl = (vocab_size - 1) / concentrations
+    epkl = (vocab_size - 1) / concentrations.squeeze(2)
     return entropy_of_expected, expected_entropy, mutual_information, epkl
