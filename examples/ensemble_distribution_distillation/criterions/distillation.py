@@ -158,17 +158,42 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         self.eps = 1e-8
         self.task = task
         self.parametrization_func = prob_parametrization[task.parametrization]
+        self.topk = args.topk_loss
+
+    @staticmethod
+    def add_args(parser):
+        _DistillationCriterionBase.add_args(parser)
+        parser.add_argument('--topk-loss', default=-1, type=int, metavar='D',
+                            help='top-k most likely classes will be considered as separate classes, others will be merged')
 
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         temp = self.task.temp
-        # TODO add support for mixtures
 
         logits = net_output[0]
 
         alphas = temp * self.parametrization_func(logits)
-        precision = torch.sum(alphas, dim=-1)
-
         teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+
+        if self.topk != -1:
+            # sort average probabilities
+            sorted_avg_probs, argsort_inds = teacher_probs.mean(2).sort(dim=-1, descending=True)
+            # get indices of k most likely classes
+            highest_probs_inds = argsort_inds[..., :self.topk]
+            lowest_probs_inds = argsort_inds[..., self.topk:]
+
+            sizes = (-1, -1, teacher_probs.size(2), -1)
+
+            # take probabilities for classes in top-k, sum for other classes
+            probs_in_topk = teacher_probs.gather(3, highest_probs_inds.unsqueeze(2).expand(*sizes))
+            probs_not_in_topk = teacher_probs.gather(3, lowest_probs_inds.unsqueeze(2).expand(*sizes)).sum(3, keepdim=True)
+            teacher_probs = torch.cat((probs_in_topk, probs_not_in_topk), dim=3)
+
+            # take alphas for classes in top-k, sum for other classes
+            alphas_topk = alphas.gather(2, highest_probs_inds)
+            alphas_not_topk = alphas.gather(2, lowest_probs_inds).sum(2, keepdim=True)
+            alphas = torch.cat((alphas_topk, alphas_not_topk), dim=2)
+
+        precision = torch.sum(alphas, dim=-1)
         mean_teacher_probs = teacher_probs.mean(dim=2, keepdim=True)
 
         teacher_probs = (temp - 1) / (temp + 1) * mean_teacher_probs + 2 / (temp + 1) * teacher_probs
