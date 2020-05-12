@@ -9,7 +9,7 @@ from fairseq.data import (
 from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 from fairseq.data.data_utils import collate_tokens
-from fairseq.uncertainty import compute_token_dirichlet_uncertainties
+from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
 from ..criterions import prob_parametrization
 
@@ -196,21 +196,23 @@ class DistillationTask(TranslationTask):
                                 eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad())
         prev_output = torch.cat([tokens.new_full((bsz * beam_size, 1), self.tgt_dict.eos()), tokens], dim=1)
 
-        new_order = torch.arange(bsz, device=device).view(-1, 1).repeat(1, beam_size).view(-1)
-        new_order = new_order.long()
+        new_order = torch.arange(bsz, device=device, dtype=torch.long).view(-1, 1).repeat(1, beam_size).view(-1)
         encoder_out = model.encoder.reorder_encoder_out(encoder_out, new_order)
         logits, attn = model.decoder(prev_output, encoder_out=encoder_out)
         logits = logits[:, :-1, :]  # remove logits after last EOS
 
         unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
+        concentrations = unnormalized_probs.sum(dim=-1, keepdim=True)
+
         normalized_probs = model.get_normalized_probs((logits, attn), log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
         mask = (tokens.unsqueeze(-1) != self.tgt_dict.pad()).type(logits.dtype)
-        # average wrt sequence lengths
-        scores = -(normalized_logprobs.gather(-1, tokens.unsqueeze(-1)) * mask).sum(dim=1) / mask.sum(dim=1)
         entropy_of_expected, expected_entropy, mutual_information, epkl = compute_token_dirichlet_uncertainties(unnormalized_probs,
+                                                                                                                concentrations,
                                                                                                                 normalized_probs)
+        log_probs, scores, expected_scores, expected_pmi = compute_sequence_dirichlet_uncertainties(unnormalized_probs, concentrations,
+                                                                                                    normalized_logprobs, tokens, mask)
 
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent):
@@ -226,7 +228,11 @@ class DistillationTask(TranslationTask):
                     'entropy_of_expected': entropy_of_expected[ind].mean(),
                     'expected_entropy': expected_entropy[ind].mean(),
                     'mutual_information': mutual_information[ind].mean(),
-                    'EPKL': epkl[ind].mean()
+                    'EPKL': epkl[ind].mean(),
+                    'log-prob': log_probs[ind],
+                    'aep_du': scores[ind],
+                    'aep_tu': expected_scores[ind],
+                    'aep_npmi': expected_pmi[ind],
                 }
 
     @torch.no_grad()
