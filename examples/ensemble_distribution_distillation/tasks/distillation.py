@@ -1,4 +1,5 @@
 import os
+from types import MethodType
 
 import torch
 
@@ -297,7 +298,7 @@ class DistillationTask(TranslationTask):
                 else:
                     return probs
 
-            model.get_normalized_probs = patched_get_normalized_probs
+            model.get_normalized_probs = MethodType(patched_get_normalized_probs, model)
 
         return model
 
