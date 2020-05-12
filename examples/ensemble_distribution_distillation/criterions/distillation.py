@@ -26,7 +26,7 @@ class _DistillationCriterionBase(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
         self.xent_weight = args.xent_weight
-        self.eps = args.label_smoothing
+        self.label_smoothing = args.label_smoothing
         self.task = task
 
     @staticmethod
@@ -50,7 +50,7 @@ class _DistillationCriterionBase(FairseqCriterion):
         target = model.get_targets(sample, net_output).view(-1, 1)
 
         xent_loss, nll_loss = label_smoothed_nll_loss(
-            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
+            lprobs, target, self.label_smoothing, ignore_index=self.padding_idx, reduce=reduce,
         )
 
         total_loss = loss + self.xent_weight * xent_loss
@@ -151,11 +151,13 @@ class ForwardKLMeanCritertion(_DistillationCriterionBase):
         return loss
 
 
+EPS = 1e-8
+
+
 @register_criterion('sequence_distribution_distillation')
 class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.eps = 1e-8
         self.task = task
         self.parametrization_func = prob_parametrization[task.parametrization]
         self.topk = args.topk_loss
@@ -197,10 +199,10 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         mean_teacher_probs = teacher_probs.mean(dim=2, keepdim=True)
 
         teacher_probs = (temp - 1) / (temp + 1) * mean_teacher_probs + 2 / (temp + 1) * teacher_probs
-        log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + self.eps), dim=-2)
+        log_teacher_probs_geo_mean = torch.mean(torch.log(teacher_probs + EPS), dim=-2)
 
         # Define the cost in two parts (dependent on targets and independent of targets)
-        target_independent_term = (torch.sum(torch.lgamma(alphas + self.eps), dim=-1) - torch.lgamma(precision + self.eps))
+        target_independent_term = (torch.sum(torch.lgamma(alphas + EPS), dim=-1) - torch.lgamma(precision + EPS))
         target_dependent_term = - torch.sum((alphas - 1.) * log_teacher_probs_geo_mean, dim=-1)
         cost = (target_dependent_term + target_independent_term) / temp
 
