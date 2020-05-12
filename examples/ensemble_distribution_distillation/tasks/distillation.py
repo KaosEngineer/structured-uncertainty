@@ -207,7 +207,7 @@ class DistillationTask(TranslationTask):
         normalized_probs = model.get_normalized_probs((logits, attn), log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
-        mask = (tokens.unsqueeze(-1) != self.tgt_dict.pad()).type(logits.dtype)
+        mask = (tokens != self.tgt_dict.pad()).type(logits.dtype)
         entropy_of_expected, expected_entropy, mutual_information, epkl = compute_token_dirichlet_uncertainties(unnormalized_probs,
                                                                                                                 concentrations,
                                                                                                                 normalized_probs)
