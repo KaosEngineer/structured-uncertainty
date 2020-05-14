@@ -68,21 +68,24 @@ class DistillationTask(TranslationTask):
         assert src_dict.eos() == tgt_dict.eos()
         assert src_dict.unk() == tgt_dict.unk()
 
-        # Load ensemble
-        print('| loading model(s) from {}'.format(args.ensemble_paths))
-        models, _model_args = checkpoint_utils.load_model_ensemble(
-            args.ensemble_paths.split(','),
-            task=TranslationTask.setup_task(args, **kwargs)
-        )
-        assert args.init_from_model is None or args.init_from_model < len(models)
-        use_cuda = torch.cuda.is_available() and not args.cpu
-        # Optimize ensemble for generation (includes setting .eval())
-        for model in models:
-            model.make_generation_fast_(need_attn=False)
-            if args.fp16:
-                model.half()
-            if use_cuda:
-                model.cuda()
+        if args.ensemble_paths is not None:
+            # Load ensemble
+            print('| loading model(s) from {}'.format(args.ensemble_paths))
+            models, _model_args = checkpoint_utils.load_model_ensemble(
+                args.ensemble_paths.split(','),
+                task=TranslationTask.setup_task(args, **kwargs)
+            )
+            assert args.init_from_model is None or args.init_from_model < len(models)
+            use_cuda = torch.cuda.is_available() and not args.cpu
+            # Optimize ensemble for generation (includes setting .eval())
+            for model in models:
+                model.make_generation_fast_(need_attn=False)
+                if args.fp16:
+                    model.half()
+                if use_cuda:
+                    model.cuda()
+        else:
+            models = []
 
         return cls(args, src_dict, tgt_dict, models)
 
