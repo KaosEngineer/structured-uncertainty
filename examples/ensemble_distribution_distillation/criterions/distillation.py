@@ -173,8 +173,8 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
 
         logits = net_output[0]
 
-        alphas = temp * self.parametrization_func(logits)
-        teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+        alphas = temp * self.parametrization_func(logits).float()
+        teacher_probs = utils.softmax(ensemble_logits, dim=-1).float()
 
         if self.topk != -1:
             # sort average probabilities
