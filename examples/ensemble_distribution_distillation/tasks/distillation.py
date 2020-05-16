@@ -181,8 +181,9 @@ class DistillationTask(TranslationTask):
     def inference_step(self, generator, models, sample, prefix_tokens=None):
         hypos_sample = generator.generate(models, sample, prefix_tokens=prefix_tokens)
 
-        # compute uncertainties
-        self.add_uncertainties(sample, hypos_sample, models)
+        if self.compute_uncertainty:
+            # compute uncertainties
+            self.add_uncertainties(sample, hypos_sample, models)
 
         return hypos_sample
 
