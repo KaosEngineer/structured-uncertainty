@@ -48,7 +48,7 @@ def get_asr_dataset_from_json(data_json_path, tgt_dict):
             key=lambda sample: int(sample[1]["input"]["length_ms"]),
             reverse=True,
         )
-        aud_paths = [s[1]["input"]["path"] for s in sorted_samples]
+        aud_paths = [os.path.join(os.path.dirname(data_json_path), s[1]["input"]["path"]) for s in sorted_samples]
         ids = [s[0] for s in sorted_samples]
         speakers = []
         for s in sorted_samples:
