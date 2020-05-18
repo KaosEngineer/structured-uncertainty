@@ -449,6 +449,7 @@ class Trainer(object):
             # clip grads
             grad_norm = self.optimizer.clip_grad_norm(self.args.clip_norm)
             self._prev_grad_norm = grad_norm
+            self.optimizer.clip_grad_value(self.args.clip_value)
 
             # take an optimization step
             self.optimizer.step()
