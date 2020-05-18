@@ -1,26 +1,23 @@
-import json
 import os
-import re
 from types import MethodType
 
 import torch
 
-from examples.ensemble_distribution_distillation.utils import prob_parametrization
-from examples.speech_recognition.data import AsrDataset
+from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params
 from examples.speech_recognition.data.replabels import replabel_symbol
-from fairseq import options, checkpoint_utils
-from fairseq.data import Dictionary, data_utils
+from examples.speech_recognition.tasks.speech_recognition import SpeechRecognitionTask
+from fairseq import checkpoint_utils
+from fairseq.data import Dictionary
 from fairseq.data.data_utils import collate_tokens
-from fairseq.tasks import FairseqTask, register_task
-from fairseq.tasks.translation import TranslationTask
+from fairseq.tasks import register_task
 from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
 
 @register_task('asr_distillation')
-class ASRDistillationTask(TranslationTask):
+class ASRDistillationTask(SpeechRecognitionTask):
     @staticmethod
     def add_args(parser):
-        TranslationTask.add_args(parser)
+        SpeechRecognitionTask.add_args(parser)
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
         parser.add_argument('--anneal-start', type=int, help='First update from which to start temperature annealing')
         parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
@@ -30,8 +27,8 @@ class ASRDistillationTask(TranslationTask):
         parser.add_argument('--final-temp', type=float, default=1)
         parser.add_argument('--parametrization', choices=prob_parametrization.keys(), default='exp')
 
-    def __init__(self, args, src_dict, tgt_dict, models):
-        super().__init__(args, src_dict, tgt_dict)
+    def __init__(self, args, tgt_dict, models):
+        super().__init__(args, tgt_dict)
         self.ensemble = models
         self.anneal_start = args.anneal_start
         self.anneal_end = args.anneal_end
@@ -51,30 +48,25 @@ class ASRDistillationTask(TranslationTask):
         Args:
             args (argparse.Namespace): parsed command-line arguments
         """
-        args.left_pad_source = options.eval_bool(args.left_pad_source)
-        args.left_pad_target = options.eval_bool(args.left_pad_target)
+        dict_path = os.path.join(args.data, "dict.txt")
+        if not os.path.isfile(dict_path):
+            raise FileNotFoundError("Dict not found: {}".format(dict_path))
+        tgt_dict = Dictionary.load(dict_path)
 
-        paths = args.data.split(os.pathsep)
-        assert len(paths) > 0
-        # find language pair automatically
-        if args.source_lang is None or args.target_lang is None:
-            args.source_lang, args.target_lang = data_utils.infer_language_pair(paths[0])
-        if args.source_lang is None or args.target_lang is None:
-            raise Exception('Could not infer language pair, please provide it explicitly')
+        if args.criterion == "ctc_loss":
+            tgt_dict.add_symbol("<ctc_blank>")
+        elif args.criterion == "asg_loss":
+            for i in range(1, args.max_replabel + 1):
+                tgt_dict.add_symbol(replabel_symbol(i))
 
-        # load dictionaries
-        src_dict = cls.load_dictionary(os.path.join(paths[0], 'dict.{}.txt'.format(args.source_lang)))
-        tgt_dict = cls.load_dictionary(os.path.join(paths[0], 'dict.{}.txt'.format(args.target_lang)))
-        assert src_dict.pad() == tgt_dict.pad()
-        assert src_dict.eos() == tgt_dict.eos()
-        assert src_dict.unk() == tgt_dict.unk()
+        print("| dictionary: {} types".format(len(tgt_dict)))
 
         if args.ensemble_paths is not None:
             # Load ensemble
             print('| loading model(s) from {}'.format(args.ensemble_paths))
             models, _model_args = checkpoint_utils.load_model_ensemble(
                 args.ensemble_paths.split(','),
-                task=TranslationTask.setup_task(args, **kwargs)
+                task=SpeechRecognitionTask.setup_task(args, **kwargs)
             )
             assert args.init_from_model is None or args.init_from_model < len(models)
             use_cuda = torch.cuda.is_available() and not args.cpu
@@ -88,7 +80,7 @@ class ASRDistillationTask(TranslationTask):
         else:
             models = []
 
-        return cls(args, src_dict, tgt_dict, models)
+        return cls(args, tgt_dict, models)
 
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False):
         """
@@ -282,10 +274,8 @@ class ASRDistillationTask(TranslationTask):
         if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
             freeze_module_params(model.decoder)
-            if model.decoder.share_input_output_embed:
-                model.decoder.embed_tokens.weight.requires_grad = True
-            else:
-                model.decoder.embed_out.requires_grad = True
+            # VGGTransformer-specific
+            model.decoder.fc_out.requires_grad = True
 
         if args.parametrization != 'exp':
             # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers
@@ -306,53 +296,3 @@ class ASRDistillationTask(TranslationTask):
             model.get_normalized_probs = MethodType(patched_get_normalized_probs, model)
 
         return model
-
-
-def get_asr_dataset_from_json(data_json_path, tgt_dict):
-    """
-    Parse data json and create dataset.
-    See scripts/asr_prep_json.py which pack json from raw files
-
-    Json example:
-    {
-    "utts": {
-        "4771-29403-0025": {
-            "input": {
-                "length_ms": 170,
-                "path": "/tmp/file1.flac"
-            },
-            "output": {
-                "text": "HELLO \n",
-                "token": "HE LLO",
-                "tokenid": "4815, 861"
-            }
-        },
-        "1564-142299-0096": {
-            ...
-        }
-    }
-    """
-    if not os.path.isfile(data_json_path):
-        raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
-    with open(data_json_path, "rb") as f:
-        data_samples = json.load(f)["utts"]
-        assert len(data_samples) != 0
-        sorted_samples = sorted(
-            data_samples.items(),
-            key=lambda sample: int(sample[1]["input"]["length_ms"]),
-            reverse=True,
-        )
-        aud_paths = [s[1]["input"]["path"] for s in sorted_samples]
-        ids = [s[0] for s in sorted_samples]
-        speakers = []
-        for s in sorted_samples:
-            m = re.search("(.+?)-(.+?)-(.+?)", s[0])
-            speakers.append(m.group(1) + "_" + m.group(2))
-        frame_sizes = [s[1]["input"]["length_ms"] for s in sorted_samples]
-        tgt = [
-            [int(i) for i in s[1]["output"]["tokenid"].split(", ")]
-            for s in sorted_samples
-        ]
-        # append eos
-        tgt = [[*t, tgt_dict.eos()] for t in tgt]
-        return AsrDataset(aud_paths, frame_sizes, tgt, tgt_dict, ids, speakers)

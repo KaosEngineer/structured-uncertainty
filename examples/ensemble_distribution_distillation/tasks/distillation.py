@@ -3,16 +3,13 @@ from types import MethodType
 
 import torch
 
+from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params
 from fairseq import options, checkpoint_utils
-from fairseq.data import (
-    data_utils,
-)
+from fairseq.data import data_utils
+from fairseq.data.data_utils import collate_tokens
 from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
-from fairseq.data.data_utils import collate_tokens
 from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
-
-from examples.ensemble_distribution_distillation.utils import prob_parametrization
 
 
 @register_task('distillation')
@@ -307,7 +304,3 @@ class DistillationTask(TranslationTask):
         return model
 
 
-def freeze_module_params(m):
-    if m is not None:
-        for p in m.parameters():
-            p.requires_grad = False
