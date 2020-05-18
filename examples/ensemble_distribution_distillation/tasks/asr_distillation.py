@@ -15,7 +15,7 @@ from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_s
 from ..criterions import prob_parametrization
 
 
-@register_task('distillation')
+@register_task('asr_distillation')
 class DistillationTask(TranslationTask):
     @staticmethod
     def add_args(parser):

@@ -1,1 +1,1 @@
-from . import tasks, criterions
+from . import tasks, criterions, models
