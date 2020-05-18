@@ -1,1 +1,1 @@
-from .distillation import SequenceDistributionDistillationCritertion, prob_parametrization
+from .distillation import SequenceDistributionDistillationCritertion

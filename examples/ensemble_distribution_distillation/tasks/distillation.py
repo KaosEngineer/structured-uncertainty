@@ -12,7 +12,7 @@ from fairseq.tasks.translation import TranslationTask
 from fairseq.data.data_utils import collate_tokens
 from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
-from ..criterions import prob_parametrization
+from examples.ensemble_distribution_distillation.utils import prob_parametrization
 
 
 @register_task('distillation')
