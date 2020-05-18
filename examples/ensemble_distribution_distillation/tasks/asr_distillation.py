@@ -16,7 +16,7 @@ from examples.ensemble_distribution_distillation.utils import prob_parametrizati
 
 
 @register_task('asr_distillation')
-class DistillationTask(TranslationTask):
+class ASRDistillationTask(TranslationTask):
     @staticmethod
     def add_args(parser):
         TranslationTask.add_args(parser)
