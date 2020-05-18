@@ -1,18 +1,19 @@
+import json
 import os
+import re
 from types import MethodType
 
 import torch
 
-from fairseq import options, checkpoint_utils
-from fairseq.data import (
-    data_utils,
-)
-from fairseq.tasks import register_task
-from fairseq.tasks.translation import TranslationTask
-from fairseq.data.data_utils import collate_tokens
-from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
-
 from examples.ensemble_distribution_distillation.utils import prob_parametrization
+from examples.speech_recognition.data import AsrDataset
+from examples.speech_recognition.data.replabels import replabel_symbol
+from fairseq import options, checkpoint_utils
+from fairseq.data import Dictionary, data_utils
+from fairseq.data.data_utils import collate_tokens
+from fairseq.tasks import FairseqTask, register_task
+from fairseq.tasks.translation import TranslationTask
+from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
 
 @register_task('asr_distillation')
