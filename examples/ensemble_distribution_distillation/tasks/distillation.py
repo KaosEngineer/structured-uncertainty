@@ -218,7 +218,7 @@ class DistillationTask(TranslationTask):
 
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent[:self.args.nbest]):
-                ind = i * beam_size + j
+                ind = i * self.args.nbest + j
                 hypo['token_uncertainties'] = {
                     'entropy_of_expected': entropy_of_expected[ind],
                     'expected_entropy': expected_entropy[ind],
