@@ -188,20 +188,20 @@ class DistillationTask(TranslationTask):
         if len(models) != 1:
             raise NotImplementedError('Uncertainty estimation for ensemble of distilled models is not implemented')
         model = models[0]
-        encoder_out = model.encoder(**sample['net_input'])
-
-        bsz = sample['nsentences']
         beam_size = len(hypos[0])
-        device = sample['net_input']['src_tokens'].device
 
-        tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent],
+        tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
                                 eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad())
-        prev_output = torch.cat([tokens.new_full((bsz * beam_size, 1), self.tgt_dict.eos()), tokens], dim=1)
+        prev_output = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
+                                     eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad(), move_eos_to_beginning=True)
 
-        new_order = torch.arange(bsz, device=device, dtype=torch.long).view(-1, 1).repeat(1, beam_size).view(-1)
-        encoder_out = model.encoder.reorder_encoder_out(encoder_out, new_order)
-        logits, attn = model.decoder(prev_output, encoder_out=encoder_out)
-        logits = logits[:, :-1, :]  # remove logits after last EOS
+        prev_tokens = sample['net_input']['prev_output_tokens']
+        sample['net_input']['prev_output_tokens'] = prev_output
+
+        logits, attn = model(**sample['net_input'])
+        # logits = logits[:, :-1, :]  # remove logits after last EOS
+
+        sample['net_input']['prev_output_tokens'] = prev_tokens
 
         unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
         concentrations = unnormalized_probs.sum(dim=-1, keepdim=True)
@@ -217,7 +217,7 @@ class DistillationTask(TranslationTask):
                                                                                                     normalized_logprobs, tokens, mask)
 
         for i, sent in enumerate(hypos):
-            for j, hypo in enumerate(sent):
+            for j, hypo in enumerate(sent[:args.nbest]):
                 ind = i * beam_size + j
                 hypo['token_uncertainties'] = {
                     'entropy_of_expected': entropy_of_expected[ind],
@@ -302,5 +302,3 @@ class DistillationTask(TranslationTask):
             model.get_normalized_probs = MethodType(patched_get_normalized_probs, model)
 
         return model
-
-
