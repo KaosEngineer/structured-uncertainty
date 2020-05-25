@@ -188,7 +188,6 @@ class DistillationTask(TranslationTask):
         if len(models) != 1:
             raise NotImplementedError('Uncertainty estimation for ensemble of distilled models is not implemented')
         model = models[0]
-        beam_size = len(hypos[0])
 
         tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
                                 eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad())
@@ -199,7 +198,6 @@ class DistillationTask(TranslationTask):
         sample['net_input']['prev_output_tokens'] = prev_output
 
         logits, attn = model(**sample['net_input'])
-        # logits = logits[:, :-1, :]  # remove logits after last EOS
 
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
