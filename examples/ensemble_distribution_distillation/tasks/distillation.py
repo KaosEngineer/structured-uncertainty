@@ -217,7 +217,7 @@ class DistillationTask(TranslationTask):
                                                                                                     normalized_logprobs, tokens, mask)
 
         for i, sent in enumerate(hypos):
-            for j, hypo in enumerate(sent[:args.nbest]):
+            for j, hypo in enumerate(sent[:self.args.nbest]):
                 ind = i * beam_size + j
                 hypo['token_uncertainties'] = {
                     'entropy_of_expected': entropy_of_expected[ind],
