@@ -15,10 +15,13 @@ parser.add_argument('path', type=str,
                     help='Path of directory containing in-domain uncertainties.')
 parser.add_argument('--wer', action='store_true',
                     help='Whether to evaluate using WER instead of BLEU')
+parser.add_argument('--beam_width', type=int, default=5,
+                    help='Path of directory where to save results.')
 parser.add_argument('--nbest', type=int, default=5,
                     help='Path of directory where to save results.')
-parser.add_argument('--top', action='store_true',
+parser.add_argument('--beam_search', action='store_true',
                     help='Path of directory where to save results.')
+
 
 def get_wer(i, path):
     subprocess.run(f"~/sclite -r {path}/sorted_refs.txt -h {path}/hypos_{i}.txt -i rm -o all", shell=True)
@@ -28,7 +31,6 @@ def get_wer(i, path):
 
 
 def get_sentence_wer(path, refs, hypos):
-
     if not os.path.exists(f"{path}/wers.txt"):
         print("Getting WERS...)")
         subprocess.run(f"~/sclite -r {path}/refs.txt -h {path}/hypos.txt -i rm -o all", shell=True)
@@ -91,7 +93,7 @@ def reject_predictions_wer(refs, hypos, measure, path,
     perfect_wer = np.asarray(
         [np.mean(np.concatenate((min_swers[:i], sorted_swers[i:]), axis=0)) for i in range(len(hypos))])
 
-    print(random_wer.shape, wers.shape, perfect_wer.shape)
+    #print(random_wer.shape, wers.shape, perfect_wer.shape)
     auc_rnd = 1.0 - auc(percentages / 100.0, random_wer / 100.0)
     auc_uns = 1.0 - auc(percentages / 100.0, wers / 100.0)
     auc_orc = 1.0 - auc(percentages / 100.0, perfect_wer / 100.0)
@@ -127,7 +129,7 @@ def reject_predictions_bleu(refs, hypos, measure, path,
     sorted_refs = refs[inds]
     sorted_hypos = hypos[inds]
 
-    #bleus = np.asarray([sentence_bleu([hypos[i]], [[refs[i]]], smooth_value=1.1).score for i in range(hypos.shape[0])])
+    # bleus = np.asarray([sentence_bleu([hypos[i]], [[refs[i]]], smooth_value=1.1).score for i in range(hypos.shape[0])])
     if not os.path.exists(f"{path}/sbleus.txt"):
         sbleus = np.asarray(
             [sentence_bleu([hypos[i]], [[refs[i]]], smooth_value=1.1).score for i in range(hypos.shape[0])])
@@ -167,7 +169,6 @@ def reject_predictions_bleu(refs, hypos, measure, path,
         dtype=np.float32)
 
     sorted_sbleus = np.sort(sbleus)
-    print(sorted_sbleus.shape)
     perfect_bleu = np.asarray(
         [np.mean(np.concatenate((max_sbleus[:i], sorted_sbleus[i:]), axis=0)) for i in range(len(hypos))])
 
@@ -223,34 +224,7 @@ def reject_predictions_bleu(refs, hypos, measure, path,
     #     f.write(f'Rejection Ratio using {measure_name}: {np.round(rejection_ratio, 1)}\n')
 
 
-# def load_uncertainties(path, n):
-#     eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float32)
-#     exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float32)
-#     mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float32)
-#     epkl = np.loadtxt(os.path.join(path, 'epkl.txt'), dtype=np.float32)
-#     score = np.loadtxt(os.path.join(path, 'score.txt'), dtype=np.float32)
-#     aep_tu = np.loadtxt(os.path.join(path, 'aep_tu.txt'), dtype=np.float32)
-#     aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float32)
-#     npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float32)
-#     unc_dict = {'Total Uncertainty': eoe,
-#             'SCR-PE': score,
-#             'Data Uncertainty': exe,
-#             'E-SCR': aep_du,
-#             'Mutual Information': mi,
-#             'EPKL': epkl,
-#             'SCR-EP': aep_tu,
-#             'EPMI-EP': npmi,
-#             'EPMI-PE': aep_du - score}
-#     if os.path.exists(os.path.join(path, 'xbleu.txt')):
-#         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
-#         unc_dict['XBLEU'] = xbleu
-#     if os.path.exists(os.path.join(path, 'xwer.txt')):
-#         xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
-#         unc_dict['XWER'] = xwer
-#
-#     return unc_dict
-
-def load_uncertainties(path, n_best=5, top=False):
+def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
     eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float32)
     exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float32)
     mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float32)
@@ -259,15 +233,18 @@ def load_uncertainties(path, n_best=5, top=False):
     aep_tu = np.loadtxt(os.path.join(path, 'aep_tu.txt'), dtype=np.float32)
     aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float32)
     npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float32)
+    probs = np.exp(np.loadtxt(os.path.join(path, 'log_probs.txt'), dtype=np.float32))
+    mkl = epkl-mi
     unc_dict = {'Total Uncertainty': eoe,
-            'SCR-PE': score,
-            'Data Uncertainty': exe,
-            'E-SCR': aep_du,
-            'Mutual Information': mi,
-            'EPKL': epkl,
-            'SCR-EP': aep_tu,
-            'EPMI-EP': npmi,
-            'EPMI-PE': aep_du - score}
+                'SCR-PE': score,
+                'Data Uncertainty': exe,
+                'E-SCR': aep_du,
+                'Mutual Information': mi,
+                'EPKL': epkl,
+                'MKL': mkl,
+                'MKL-PE': aep_du - score,
+                'SCR-EP': aep_tu,
+                'MKL-EP': npmi}
     if os.path.exists(os.path.join(path, 'xbleu.txt')):
         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
         unc_dict['XBLEU'] = xbleu
@@ -275,26 +252,27 @@ def load_uncertainties(path, n_best=5, top=False):
         xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
         unc_dict['XWER'] = xwer
 
+    weights = probs.reshape([-1, beam_width])[:, :n_best]
+    weights = weights / np.sum(weights, axis=1, keepdims=True)
     for key in unc_dict.keys():
         uncertainties = unc_dict[key]
-        if top:
-            unc_dict[key] = np.reshape(uncertainties, [-1, n_best])[:, 0]
-            print('Went to top...')
+        if beam_search:
+            unc_dict[key] = np.sum(weights * np.reshape(uncertainties, [-1, beam_width])[:, :n_best], axis=1)
         else:
-            unc_dict[key] = np.mean(np.reshape(uncertainties, [-1, n_best]), axis=1)
+            unc_dict[key] = np.mean(np.reshape(uncertainties, [-1, beam_width])[:, : n_best], axis=1)
     return unc_dict
 
 
-def load_text(path, nbest=5):
+def load_text(path, beam_width=5):
     refs, hypos = [], []
     with open(os.path.join(path, 'refs.txt'), 'r') as f:
         for line in f.readlines():
             refs.append(line[1:-1])
 
     with open(os.path.join(path, 'hypos.txt'), 'r') as f:
-        count=0
+        count = 0
         for line in f.readlines():
-            if count % nbest == 0:
+            if count % beam_width == 0:
                 hypos.append(line[1:-1])
             count += 1
 
@@ -303,56 +281,54 @@ def load_text(path, nbest=5):
 
 def main():
     args = parser.parse_args()
-
-
+    uncertainties = load_uncertainties(args.path, beam_width=args.beam_width, n_best=args.nbest,
+                                       beam_search=args.beam_search)
+    out_dict = {}
     if args.wer:
-        refs, hypos = load_text(args.path, nbest=1)
-        uncertainties = load_uncertainties(args.path, n_best=args.nbest, top=args.top)
-        wer_dict = {}
+        refs, hypos = load_text(args.path, beam_width=1)
         for key in uncertainties.keys():
             wer, random_wer, percentage, perfect_wer, auc_rr = reject_predictions_wer(refs, hypos, uncertainties[key],
                                                                                       args.path)
-            wer_dict[key] = [wer, percentage, random_wer, perfect_wer, auc_rr]
-        plt.plot(wer_dict[key][1], wer_dict[key][3], 'k--', lw=2)
-        for key in wer_dict.keys():
-            plt.plot(wer_dict[key][1], wer_dict[key][0])
-        plt.plot(wer_dict[key][1], wer_dict[key][2], 'k--', lw=2)
-        plt.ylim(0.0, wer_dict[key][2][0])
+            out_dict[key] = [wer, percentage, random_wer, perfect_wer, auc_rr]
+        plt.plot(out_dict[key][1], out_dict[key][3], 'k--', lw=2)
+        for key in out_dict.keys():
+            plt.plot(out_dict[key][1], out_dict[key][0])
+        plt.plot(out_dict[key][1], out_dict[key][2], 'k--', lw=2)
+        plt.ylim(0.0, out_dict[key][2][0])
         plt.xlim(0.0, 100.0)
         plt.xlabel('Percentage Rejected')
         plt.ylabel('WER (%)')
-        plt.legend(['Oracle'] + list(wer_dict.keys()) + ['Expected Random'])
+        plt.legend(['Oracle'] + list(out_dict.keys()) + ['Expected Random'])
         plt.savefig(os.path.join(args.path, 'seq_reject.png'), bbox_inches='tight', dpi=300)
         plt.close()
 
-        with open(os.path.join(args.path, 'results.txt'), 'a') as f:
-            f.write(f'--SEQ ERROR DETECT N-BEST {args.top} --\n')
-            for key in wer_dict.keys():
-                f.write('AUC-RR using ' + key + ": " + str(np.round(wer_dict[key][-1], 1)) + '\n')
     else:
-        refs, hypos = load_text(args.path, nbest=args.nbest)
-        uncertainties = load_uncertainties(args.path, n_best=args.nbest, top=args.top)
-        bleu_dict = {}
+        refs, hypos = load_text(args.path, beam_width=args.beam_width)
         for key in uncertainties.keys():
             bleus, random_bleu, percentage, perfect_bleu, auc_rr = reject_predictions_bleu(refs, hypos,
-                                                                                           uncertainties[key], args.path)
-            bleu_dict[key] = [bleus, percentage, random_bleu, perfect_bleu, auc_rr]
-        plt.plot(bleu_dict[key][1], bleu_dict[key][3], 'k--', lw=2)
-        for key in bleu_dict.keys():
-            plt.plot(bleu_dict[key][1], bleu_dict[key][0])
-        plt.plot(bleu_dict[key][1], bleu_dict[key][2], 'k--', lw=2)
-        plt.ylim(bleu_dict[key][2][0], 100.0)
+                                                                                           uncertainties[key],
+                                                                                           args.path)
+            out_dict[key] = [bleus, percentage, random_bleu, perfect_bleu, auc_rr]
+        plt.plot(out_dict[key][1], out_dict[key][3], 'k--', lw=2)
+        for key in out_dict.keys():
+            plt.plot(out_dict[key][1], out_dict[key][0])
+        plt.plot(out_dict[key][1], out_dict[key][2], 'k--', lw=2)
+        plt.ylim(out_dict[key][2][0], 100.0)
         plt.xlim(0.0, 100.0)
         plt.xlabel('Percentage Rejected')
         plt.ylabel('Bleu')
-        plt.legend(['Oracle'] + list(bleu_dict.keys()) + ['Expected Random'])
+        plt.legend(['Oracle'] + list(out_dict.keys()) + ['Expected Random'])
         plt.savefig(os.path.join(args.path, 'seq_reject.png'), bbox_inches='tight', dpi=300)
         plt.close()
 
-        with open(os.path.join(args.path, 'results.txt'), 'a') as f:
-            f.write(f'--SEQ ERROR DETECT N-BEST {args.top} --\n')
-            for key in bleu_dict.keys():
-                f.write('AUC-RR using ' + key + ": " + str(np.round(bleu_dict[key][-1], 1)) + '\n')
+    if args.beam_search:
+        results = 'results_seq_bs.txt'
+    else:
+        results = 'results_seq_mc.txt'
+    with open(os.path.join(args.path, results), 'a') as f:
+        f.write(f'--SEQ ERROR DETECT N-BEST  {args.nbest} BW: {args.beam_width}, BS:{args.beam_search}--\n')
+        for key in out_dict.keys():
+            f.write('AUC-RR using ' + key + ": " + str(np.round(out_dict[key][-1], 1)) + '\n')
 
 
 if __name__ == '__main__':
