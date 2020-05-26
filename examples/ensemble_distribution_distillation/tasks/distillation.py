@@ -194,11 +194,18 @@ class DistillationTask(TranslationTask):
         prev_output = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
                                      eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad(), move_eos_to_beginning=True)
 
+        src_tokens = sample['net_input']['src_tokens']
+        src_lengths = sample['net_input']['src_lengths']
         prev_tokens = sample['net_input']['prev_output_tokens']
+
+        sample['net_input']['src_tokens'] = torch.repeat_interleave(sample['net_input']['src_tokens'], self.args.nbest, dim=0)
+        sample['net_input']['src_lengths'] = torch.repeat_interleave(sample['net_input']['src_lengths'], self.args.nbest, dim=0)
         sample['net_input']['prev_output_tokens'] = prev_output
 
         logits, attn = model(**sample['net_input'])
 
+        sample['net_input']['src_tokens'] = src_tokens
+        sample['net_input']['src_lengths'] = src_lengths
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
         unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
