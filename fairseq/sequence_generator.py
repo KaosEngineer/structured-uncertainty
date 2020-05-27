@@ -778,11 +778,25 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
         token_du = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
         token_mi = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
         token_epkl = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
+        token_mkl = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
+
+        token_tu_ep = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
+        token_mi_ep = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
+        token_epkl_ep = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
+        token_mkl_ep = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
 
         token_tu_buf = token_tu.clone()
         token_du_buf = token_du.clone()
         token_mi_buf = token_mi.clone()
         token_epkl_buf = token_epkl.clone()
+        token_mkl_buf = token_mkl.clone()
+
+        token_tu_ep_buf = token_tu_ep.clone()
+        token_mi_ep_buf = token_mi_ep.clone()
+        token_epkl_ep_buf = token_epkl_ep.clone()
+        token_mkl_ep_buf = token_mkl_ep.clone()
+
+
 
         tokens = src_tokens.new(bsz * beam_size, max_len + 2).long().fill_(self.pad)
         tokens_buf = tokens.clone()
@@ -857,6 +871,12 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             pos_du = token_du.index_select(0, bbsz_idx)[:, :step + 1]
             pos_mi = token_mi.index_select(0, bbsz_idx)[:, :step + 1]
             pos_epkl = token_epkl.index_select(0, bbsz_idx)[:, :step + 1]
+            pos_mkl = token_mkl.index_select(0, bbsz_idx)[:, :step + 1]
+
+            pos_tu_ep = token_tu_ep.index_select(0, bbsz_idx)[:, :step + 1]
+            pos_mi_ep = token_mi_ep.index_select(0, bbsz_idx)[:, :step + 1]
+            pos_epkl_ep = token_epkl_ep.index_select(0, bbsz_idx)[:, :step + 1]
+            pos_mkl_ep = token_mkl_ep.index_select(0, bbsz_idx)[:, :step + 1]
 
             # compute scores per token position
             aep_tu, aep_du, aep_nmpi = aep_uncertainty(eos_enscores.view(esz, -1), step)
@@ -909,6 +929,11 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                                 'expected_entropy': pos_du[i],
                                                 'mutual_information': pos_mi[i],
                                                 'EPKL': pos_epkl[i],
+                                                'MKL': pos_mkl[i],
+                                                'ep_entropy_of_expected': pos_tu_ep[i],
+                                                'ep_mutual_information': pos_mi_ep[i],
+                                                'ep_EPKL': pos_epkl_ep[i],
+                                                'ep_MKL': pos_mkl_ep[i],
                                                 'token-aep-tu': token_aep_tu[i],
                                                 'token-aep-du': token_aep_du[i],
                                                 'token-aep-ku': token_aep_ku[i]
@@ -917,6 +942,11 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                                    'expected_entropy': torch.mean(pos_du[i]),
                                                    'mutual_information': torch.mean(pos_mi[i]),
                                                    'EPKL': torch.mean(pos_epkl[i]),
+                                                   'MKL': torch.mean(pos_mkl[i]),
+                                                   'ep_entropy_of_expected': torch.mean(pos_tu_ep[i]),
+                                                   'ep_mutual_information': torch.mean(pos_mi_ep[i]),
+                                                   'ep_EPKL': torch.mean(pos_epkl_ep[i]),
+                                                   'ep_MKL': torch.mean(pos_mkl_ep[i]),
                                                    'score': -score,
                                                    'aep_tu': aep_tu[i],
                                                    'aep_du': aep_du[i],
@@ -955,7 +985,9 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
 
             # lprobs are [bsz*beam_size, vocab_size]
             # stackped_lprobs are [esz, bsz*beam_size, vocab_size]
-            uncertainties = token_uncertainties(stacked_lprobs)
+            print('here!')
+            uncertainties = token_uncertainties(stacked_lprobs, enscores, step)
+
             stacked_lprobs[:, :, self.pad] = -math.inf  # never select pad
             # Calculate uncertainties at current token
             stacked_lprobs[:, :, self.pad] -= self.unk_penalty  # apply unk penalty
@@ -1043,10 +1075,21 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             token_du = token_du.type_as(lprobs)
             token_mi = token_mi.type_as(lprobs)
             token_epkl = token_epkl.type_as(lprobs)
+            token_mkl = token_mkl.type_as(lprobs)
             token_tu_buf = token_tu_buf.type_as(lprobs)
             token_du_buf = token_du_buf.type_as(lprobs)
             token_mi_buf = token_mi_buf.type_as(lprobs)
+            token_mkl_buf = token_mkl_buf.type_as(lprobs)
             token_epkl_buf = token_epkl_buf.type_as(lprobs)
+
+            token_tu_ep = token_tu_ep.type_as(lprobs)
+            token_mi_ep = token_mi_ep.type_as(lprobs)
+            token_epkl_ep = token_epkl_ep.type_as(lprobs)
+            token_mkl_ep = token_mkl_ep.type_as(lprobs)
+            token_tu_ep_buf = token_tu_ep_buf.type_as(lprobs)
+            token_mi_ep_buf = token_mi_ep_buf.type_as(lprobs)
+            token_mkl_ep_buf = token_mkl_ep_buf.type_as(lprobs)
+            token_epkl_ep_buf = token_epkl_ep_buf.type_as(lprobs)
 
             self.search.set_src_lengths(src_lengths)
 
@@ -1163,6 +1206,17 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                 token_mi_buf.resize_as_(token_mi)
                 token_epkl = token_epkl.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
                 token_epkl_buf.resize_as_(token_epkl)
+                token_mkl = token_mkl.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                token_mkl_buf.resize_as_(token_mkl)
+
+                token_tu_ep = token_tu_ep.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                token_tu_ep_buf.resize_as_(token_tu_ep)
+                token_mi_ep = token_mi_ep.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                token_mi_ep_buf.resize_as_(token_mi_ep)
+                token_epkl_ep = token_epkl_ep.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                token_epkl_ep_buf.resize_as_(token_epkl_ep)
+                token_mkl_ep = token_mkl_ep.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                token_mkl_ep_buf.resize_as_(token_mkl_ep)
 
                 if attn is not None:
                     attn = attn.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, attn.size(1), -1)
@@ -1220,6 +1274,17 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                out=token_mi[:, step])
             torch.index_select(uncertainties['EPKL'], dim=0, index=active_bbsz_idx,
                                out=token_epkl[:, step])
+            torch.index_select(uncertainties['MKL'], dim=0, index=active_bbsz_idx,
+                               out=token_mkl[:, step])
+            torch.index_select(uncertainties['ep_entropy_of_expected'], dim=0, index=active_bbsz_idx,
+                               out=token_tu_ep[:, step])
+            torch.index_select(uncertainties['ep_mutual_information'], dim=0, index=active_bbsz_idx,
+                               out=token_mi_ep[:, step])
+            torch.index_select(uncertainties['ep_EPKL'], dim=0, index=active_bbsz_idx,
+                               out=token_epkl_ep[:, step])
+            torch.index_select(uncertainties['ep_MKL'], dim=0, index=active_bbsz_idx,
+                               out=token_mkl_ep[:, step])
+
             # copy tokens and scores for active hypotheses
             torch.index_select(
                 tokens[:, :step + 1], dim=0, index=active_bbsz_idx,
@@ -1254,6 +1319,26 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                     token_epkl[:, :step], dim=0, index=active_bbsz_idx,
                     out=token_epkl_buf[:, :step],
                 )
+                torch.index_select(
+                    token_mkl[:, :step], dim=0, index=active_bbsz_idx,
+                    out=token_mkl_buf[:, :step],
+                )
+                torch.index_select(
+                    token_tu_ep[:, :step], dim=0, index=active_bbsz_idx,
+                    out=token_tu_ep_buf[:, :step],
+                )
+                torch.index_select(
+                    token_mi_ep[:, :step], dim=0, index=active_bbsz_idx,
+                    out=token_mi_ep_buf[:, :step],
+                )
+                torch.index_select(
+                    token_epkl_ep[:, :step], dim=0, index=active_bbsz_idx,
+                    out=token_epkl_ep_buf[:, :step],
+                )
+                torch.index_select(
+                    token_mkl_ep[:, :step], dim=0, index=active_bbsz_idx,
+                    out=token_mkl_ep_buf[:, :step],
+                )
 
             torch.gather(
                 cand_scores, dim=1, index=active_hypos,
@@ -1271,6 +1356,17 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                out=token_mi_buf[:, step])
             torch.index_select(uncertainties['EPKL'], dim=0, index=active_bbsz_idx,
                                out=token_epkl_buf[:, step])
+            torch.index_select(uncertainties['MKL'], dim=0, index=active_bbsz_idx,
+                               out=token_mkl_buf[:, step])
+
+            torch.index_select(uncertainties['ep_entropy_of_expected'], dim=0, index=active_bbsz_idx,
+                               out=token_tu_ep_buf[:, step])
+            torch.index_select(uncertainties['ep_mutual_information'], dim=0, index=active_bbsz_idx,
+                               out=token_mi_ep_buf[:, step])
+            torch.index_select(uncertainties['ep_EPKL'], dim=0, index=active_bbsz_idx,
+                               out=token_epkl_ep_buf[:, step])
+            torch.index_select(uncertainties['ep_MKL'], dim=0, index=active_bbsz_idx,
+                               out=token_mkl_ep_buf[:, step])
             # copy attention for active hypotheses
             if attn is not None:
                 torch.index_select(
@@ -1283,6 +1379,11 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             token_du, token_du_buf = token_du_buf, token_du
             token_mi, token_mi_buf = token_mi_buf, token_mi
             token_epkl, token_epkl_buf = token_epkl_buf, token_epkl
+            token_mkl, token_mkl_buf = token_mkl_buf, token_mkl
+            token_tu_ep, token_tu_ep_buf = token_tu_ep_buf, token_tu_ep
+            token_mi_ep, token_mi_ep_buf = token_mi_ep_buf, token_mi_ep
+            token_epkl_ep, token_epkl_ep_buf = token_epkl_ep_buf, token_epkl_ep
+            token_mkl_ep, token_mkl_ep_buf = token_mkl_ep_buf, token_mkl_ep
 
             enscores, enscores_buf = enscores_buf, enscores
             tokens, tokens_buf = tokens_buf, tokens

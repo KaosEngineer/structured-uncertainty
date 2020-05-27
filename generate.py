@@ -185,6 +185,43 @@ def main(args):
                                     hypo['token_uncertainties']['EPKL'].tolist(),
                                 ))
                             ))
+                            print('T-MKL-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['MKL'].tolist(),
+                                ))
+                            ))
+
+                            print('T-EOE-EP-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['ep_entropy_of_expected'].tolist(),
+                                ))
+                            ))
+                            print('T-MI-EP-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['ep_mutual_information'].tolist(),
+                                ))
+                            ))
+                            print('T-EPKL-EP-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['ep_EPKL'].tolist(),
+                                ))
+                            ))
+                            print('T-MKL-EP-{}\t{}'.format(
+                                sample_id,
+                                ' '.join(map(
+                                    lambda x: '{:.8f}'.format(x),
+                                    hypo['token_uncertainties']['ep_MKL'].tolist(),
+                                ))
+                            ))
+
                             print('T-AEP-TU-{}\t{}'.format(
                                 sample_id,
                                 ' '.join(map(
@@ -207,7 +244,7 @@ def main(args):
                                 ))
                             ))
 
-                            print('SU-{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                            print('SU-{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                                 sample_id,
                                 hypo['sequence_uncertainties']['entropy_of_expected'].float().cpu(),
                                 hypo['sequence_uncertainties']['expected_entropy'].float().cpu(),
@@ -218,7 +255,12 @@ def main(args):
                                 hypo['sequence_uncertainties']['aep_du'].float().cpu(),
                                 hypo['sequence_uncertainties']['aep_npmi'].float().cpu(),
                                 hypo['sequence_uncertainties']['score_npmi'].float().cpu(),
-                                hypo['sequence_uncertainties']['log-prob']
+                                hypo['sequence_uncertainties']['log-prob'],
+                                hypo['sequence_uncertainties']['ep_entropy_of_expected'].float().cpu(),
+                                hypo['sequence_uncertainties']['ep_mutual_information'].float().cpu(),
+                                hypo['sequence_uncertainties']['ep_EPKL'].float().cpu(),
+                                hypo['sequence_uncertainties']['ep_MKL'].float().cpu(),
+                                hypo['sequence_uncertainties']['MKL'].float().cpu(),
                             ))
 
                         if args.print_alignment:

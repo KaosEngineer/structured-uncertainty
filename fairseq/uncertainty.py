@@ -1,29 +1,73 @@
 import torch
 
 
-def token_uncertainties(lprobs):
-    dim = len(lprobs.size()) - 1
-    esz = torch.tensor(lprobs.size()[0], dtype=torch.float32)
-    probs = torch.exp(lprobs)
-    exe = -torch.mean(torch.sum(probs * lprobs, dim=dim), dim=0)
+def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
+    #stacked_lprobs.add_(enscores[:, :, :, step - 1].unsqueeze(-1))
+    #print('here!')
+    #Compute Product-of-Expected Token-Level Uncertainties
+    dim = len(stacked_lprobs.size()) - 1
+    esz = torch.tensor(stacked_lprobs.size()[0], dtype=torch.float32)
+    probs = torch.exp(stacked_lprobs)
+    exe = -torch.mean(torch.sum(probs * stacked_lprobs, dim=dim), dim=0)
 
     # Compute Entropy of Expected and Mutual Information
     mprobs = torch.mean(probs, dim=0)
     mdim = len(mprobs.size()) - 1
 
-    log_mprobs = torch.logsumexp(lprobs, dim=0) - torch.log(esz)
+    log_mprobs = torch.logsumexp(stacked_lprobs, dim=0) - torch.log(esz)
     eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
     mutual_info = eoe - exe
 
     # Compute Expected Pairwise KL-divergence
-    mlog_probs = torch.mean(lprobs, dim=0)
+    mlog_probs = torch.mean(stacked_lprobs, dim=0)
     eoe_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
     epkl = eoe_upper_bound - exe
+    mkl = eoe_upper_bound - eoe
+
+    if step == 0:
+        expr_eoe = eoe
+        expr_mkl = mkl
+        expr_epkl = epkl
+        expr_mutual_information = mutual_info
+    elif step >0:
+        if decode:
+            #Get Posterior Probabilities for 0:L-1
+            scores = torch.logsumexp(enscores[:, :, step - 1].unsqueeze(-1), dim=0)
+            #Get Posterior Probabilities for 0:L
+            stacked_lprobs.add_(enscores[:, :, step - 1].unsqueeze(-1))
+            #Get Posterior for token L
+            log_mprobs = torch.logsumexp(stacked_lprobs, dim=0) - scores
+            mprobs = torch.exp(log_mprobs)
+            expr_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
+            expr_eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
+            expr_mkl = expr_upper_bound - expr_eoe
+            expr_epkl = expr_upper_bound - exe
+            expr_mutual_information = expr_eoe-exe
+        else:
+            enscores[:,1:]=enscores[:,:-1]
+            enscores[:,0]=0.0
+            scores = torch.logsumexp(enscores.unsqueeze(-1), dim=0)
+            stacked_lprobs.add_(enscores.unsqueeze(-1))
+
+            log_mprobs = torch.logsumexp(stacked_lprobs, dim=0) - scores
+            mprobs = torch.exp(log_mprobs)
+            expr_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
+            expr_eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
+            expr_mkl = expr_upper_bound - expr_eoe
+            expr_epkl = expr_upper_bound - exe
+            expr_mutual_information = expr_eoe-exe
+        #stacked_lprobs.add_(enscores[:, :, step - 1].unsqueeze(-1))
+        #print(stacked_lprobs.size(), enscores.size())
 
     return {'entropy_of_expected': eoe,
+            'ep_entropy_of_expected': expr_eoe,
             'expected_entropy': exe,
             'mutual_information': mutual_info,
-            'EPKL': epkl}
+            'ep_mutual_information': expr_mutual_information,
+            'EPKL': epkl,
+            'ep_EPKL': expr_epkl,
+            'MKL': mkl,
+            'ep_MKL': expr_mkl}
 
 def aep_uncertainty(eos_enscores, step):
     esz = torch.tensor(eos_enscores.size(0), dtype=torch.float32)

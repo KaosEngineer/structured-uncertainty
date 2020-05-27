@@ -204,13 +204,13 @@ class SequenceScorerWithUncertainty(SequenceScorer):
 
         stacked_lprobs = torch.stack(stacked_lprobs, dim=0)
         esz = stacked_lprobs.size(0)
-        tok_unc = token_uncertainties(stacked_lprobs)
+        #tok_unc = token_uncertainties(stacked_lprobs)
 
         target_lprobs = torch.stack(target_lprobs, dim=0)
         avg_lprobs = torch.logsumexp(target_lprobs, dim=0) - torch.log(torch.tensor
                                                                       (esz, dtype=torch.float32))
         aep_lprobs = target_lprobs.permute(1, 0, 2)
-
+        stacked_lprobs = stacked_lprobs.permute(1,0,2,3)
         bsz = target_lprobs.size(1)
         hypos = []
         start_idxs = sample['start_indices'] if 'start_indices' in sample else [0] * bsz
@@ -223,6 +223,10 @@ class SequenceScorerWithUncertainty(SequenceScorer):
 
             score_i = avg_lprobs_i.sum() / tgt_len
             eos_enscores = torch.sum(aep_lprobs[i][:, :tgt_len], dim=1, keepdim=True)
+            enscores = torch.cumsum(aep_lprobs[i][:, :tgt_len], dim=1)
+            print(aep_lprobs.size(), eos_enscores.size(), stacked_lprobs.size(), tgt_len)
+            tok_unc = token_uncertainties(stacked_lprobs[i][:, :tgt_len, :], enscores=enscores, step=tgt_len, decode=False)
+
             token_aep_tu = -avg_lprobs[i][start_idxs[i]:start_idxs[i] + tgt_len]
             token_aep_du = -torch.mean(aep_lprobs[i][:, :tgt_len], dim=0)
             print(token_aep_tu.size(), token_aep_du.size())
@@ -245,19 +249,29 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                 'alignment': alignment,
                 'positional_scores': avg_lprobs_i,
                 'token_uncertainties': {
-                    'entropy_of_expected': tok_unc['entropy_of_expected'][i, :tgt_len],
-                    'expected_entropy': tok_unc['expected_entropy'][i, :tgt_len],
-                    'mutual_information': tok_unc['mutual_information'][i, :tgt_len],
-                    'EPKL': tok_unc['EPKL'][i, :tgt_len],
+                    'entropy_of_expected': tok_unc['entropy_of_expected'][:tgt_len],
+                    'expected_entropy': tok_unc['expected_entropy'][:tgt_len],
+                    'mutual_information': tok_unc['mutual_information'][:tgt_len],
+                    'EPKL': tok_unc['EPKL'][:tgt_len],
+                    'MKL': tok_unc['MKL'][:tgt_len],
+                    'ep_entropy_of_expected': tok_unc['ep_entropy_of_expected'][:tgt_len],
+                    'ep_mutual_information': tok_unc['ep_mutual_information'][:tgt_len],
+                    'ep_EPKL': tok_unc['ep_EPKL'][:tgt_len],
+                    'ep_MKL': tok_unc['ep_MKL'][:tgt_len],
                     'token-aep-tu': token_aep_tu,
                     'token-aep-du': token_aep_du,
                     'token-aep-ku': token_aep_du - token_aep_tu
                 },
                 'sequence_uncertainties': {
-                    'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][i, :tgt_len]),
-                    'expected_entropy': torch.mean(tok_unc['expected_entropy'][i, :tgt_len]),
-                    'mutual_information': torch.mean(tok_unc['mutual_information'][i, :tgt_len]),
-                    'EPKL': torch.mean(tok_unc['EPKL'][i, :tgt_len]),
+                    'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][:tgt_len]),
+                    'expected_entropy': torch.mean(tok_unc['expected_entropy'][:tgt_len]),
+                    'mutual_information': torch.mean(tok_unc['mutual_information'][:tgt_len]),
+                    'EPKL': torch.mean(tok_unc['EPKL'][:tgt_len]),
+                    'MKL': torch.mean(tok_unc['MKL'][:tgt_len]),
+                    'ep_entropy_of_expected': torch.mean(tok_unc['ep_entropy_of_expected'][:tgt_len]),
+                    'ep_mutual_information': torch.mean(tok_unc['ep_mutual_information'][:tgt_len]),
+                    'ep_EPKL': torch.mean(tok_unc['ep_EPKL'][:tgt_len]),
+                    'ep_MKL': torch.mean(tok_unc['ep_MKL'][:tgt_len]),
                     'score': -score_i,
                     'aep_tu': aep_tu.squeeze(),
                     'aep_du': aep_du.squeeze(),
