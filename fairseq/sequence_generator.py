@@ -985,7 +985,6 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
 
             # lprobs are [bsz*beam_size, vocab_size]
             # stackped_lprobs are [esz, bsz*beam_size, vocab_size]
-            print('here!')
             uncertainties = token_uncertainties(stacked_lprobs, enscores, step)
 
             stacked_lprobs[:, :, self.pad] = -math.inf  # never select pad
@@ -1067,7 +1066,7 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             scores = scores.type_as(lprobs)
             scores_buf = scores_buf.type_as(lprobs)
             enscores = enscores.type_as(stacked_lprobs)
-            enscores_buf = enscores.type_as(stacked_lprobs)
+            enscores_buf = enscores_buf.type_as(stacked_lprobs)
             eos_bbsz_idx = buffer('eos_bbsz_idx')
             eos_scores = buffer('eos_scores', type_of=scores)
             eos_enscores = buffer('eos_enscores', type_of=enscores)
@@ -1190,6 +1189,13 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                 uncertainties['mutual_information'] = uncertainties['mutual_information'].view(bsz, -1)[
                     batch_idxs].view(new_bsz * beam_size, -1)
                 uncertainties['EPKL'] = uncertainties['EPKL'].view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                uncertainties['MKL'] = uncertainties['MKL'].view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                uncertainties['ep_entropy_of_expected'] = uncertainties['ep_entropy_of_expected'].view(bsz, -1)[
+                    batch_idxs].view(new_bsz * beam_size, -1)
+                uncertainties['ep_mutual_information'] = uncertainties['ep_mutual_information'].view(bsz, -1)[
+                    batch_idxs].view(new_bsz * beam_size, -1)
+                uncertainties['ep_EPKL'] = uncertainties['ep_EPKL'].view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                uncertainties['ep_MKL'] = uncertainties['ep_MKL'].view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
 
                 scores = scores.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
                 scores_buf.resize_as_(scores)

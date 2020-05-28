@@ -2,9 +2,6 @@ import torch
 
 
 def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
-    #stacked_lprobs.add_(enscores[:, :, :, step - 1].unsqueeze(-1))
-    #print('here!')
-    #Compute Product-of-Expected Token-Level Uncertainties
     dim = len(stacked_lprobs.size()) - 1
     esz = torch.tensor(stacked_lprobs.size()[0], dtype=torch.float32)
     probs = torch.exp(stacked_lprobs)
@@ -31,33 +28,22 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
         expr_mutual_information = mutual_info
     elif step >0:
         if decode:
-            #Get Posterior Probabilities for 0:L-1
             scores = torch.logsumexp(enscores[:, :, step - 1].unsqueeze(-1), dim=0)
-            #Get Posterior Probabilities for 0:L
-            stacked_lprobs.add_(enscores[:, :, step - 1].unsqueeze(-1))
-            #Get Posterior for token L
-            log_mprobs = torch.logsumexp(stacked_lprobs, dim=0) - scores
-            mprobs = torch.exp(log_mprobs)
-            expr_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
-            expr_eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
-            expr_mkl = expr_upper_bound - expr_eoe
-            expr_epkl = expr_upper_bound - exe
-            expr_mutual_information = expr_eoe-exe
+            nstacked_lprobs = stacked_lprobs + enscores[:, :, step - 1].unsqueeze(-1)
         else:
-            enscores[:,1:]=enscores[:,:-1]
-            enscores[:,0]=0.0
-            scores = torch.logsumexp(enscores.unsqueeze(-1), dim=0)
-            stacked_lprobs.add_(enscores.unsqueeze(-1))
+            nenscores = enscores.close()
+            nenscores[:,1:]=nenscores[:,:-1]
+            nenscores[:,0]=0.0
+            scores = torch.logsumexp(nenscores.unsqueeze(-1), dim=0)
+            nstacked_lprobs = stacked_lprobs +nenscores.unsqueeze(-1)
 
-            log_mprobs = torch.logsumexp(stacked_lprobs, dim=0) - scores
-            mprobs = torch.exp(log_mprobs)
-            expr_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
-            expr_eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
-            expr_mkl = expr_upper_bound - expr_eoe
-            expr_epkl = expr_upper_bound - exe
-            expr_mutual_information = expr_eoe-exe
-        #stacked_lprobs.add_(enscores[:, :, step - 1].unsqueeze(-1))
-        #print(stacked_lprobs.size(), enscores.size())
+        log_mprobs = torch.logsumexp(nstacked_lprobs, dim=0) - scores
+        mprobs = torch.exp(log_mprobs)
+        expr_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
+        expr_eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
+        expr_mkl = expr_upper_bound - expr_eoe
+        expr_epkl = expr_upper_bound - exe
+        expr_mutual_information = expr_eoe-exe
 
     return {'entropy_of_expected': eoe,
             'ep_entropy_of_expected': expr_eoe,
