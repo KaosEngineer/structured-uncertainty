@@ -131,7 +131,7 @@ class SequenceScorerWithUncertainty(SequenceScorer):
         # Uncertainties are derived using an ensemble of models, so we have to have more than 1 model...
         assert len(models) > 1
 
-        from fairseq.uncertainty import token_uncertainties, aep_uncertainty
+        from fairseq.uncertainty import token_uncertainties, seq_uncertainties
         """Score a batch of translations."""
         net_input = sample['net_input']
 
@@ -230,7 +230,7 @@ class SequenceScorerWithUncertainty(SequenceScorer):
             token_aep_tu = -avg_lprobs[i][start_idxs[i]:start_idxs[i] + tgt_len]
             token_aep_du = -torch.mean(aep_lprobs[i][:, :tgt_len], dim=0)
             print(token_aep_tu.size(), token_aep_du.size())
-            aep_tu, aep_du, aep_nmpi = aep_uncertainty(eos_enscores, tgt_len-1)
+            aep_tu, aep_du, aep_nmpi = seq_uncertainties(eos_enscores, tgt_len - 1)
             if avg_attn is not None:
                 avg_attn_i = avg_attn[i]
                 alignment = utils.extract_hard_alignment(

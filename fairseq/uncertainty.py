@@ -55,26 +55,26 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
             'MKL': mkl,
             'ep_MKL': expr_mkl}
 
-def aep_uncertainty(eos_enscores, step):
+def seq_uncertainties(eos_enscores, step):
     esz = torch.tensor(eos_enscores.size(0), dtype=torch.float32)
     step = torch.tensor(step, dtype=torch.float32)
 
-    data_unc = -torch.mean(eos_enscores, dim=0)
+    eoe_ub = -torch.mean(eos_enscores, dim=0)
     total_unc = -(torch.logsumexp(eos_enscores, dim=0) - torch.log(esz))
 
-    data_unc /= (step+1)
+    eoe_ub /= (step+1)
     total_unc /= (step+1)
 
-    npmi = data_unc - total_unc
+    mkl = eoe_ub - total_unc
 
-    return total_unc, data_unc, npmi
+    return total_unc, eoe_ub, mkl
 
 
 def token_aep_uncertainty(pos_enscores):
     esz = torch.tensor(pos_enscores.size(0), dtype=torch.float32)
-    data_unc = - torch.mean(pos_enscores, dim=0)
+    eoe_ub = - torch.mean(pos_enscores, dim=0)
 
     total_unc = -(torch.logsumexp(pos_enscores, dim=0) - torch.log(esz))
-    know_unc = data_unc-total_unc
+    know_unc = eoe_ub-total_unc
 
-    return total_unc, data_unc, know_unc
+    return total_unc, eoe_ub, know_unc

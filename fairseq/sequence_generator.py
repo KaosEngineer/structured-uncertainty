@@ -727,7 +727,7 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             bos_token=None,
             **kwargs
     ):
-        from fairseq.uncertainty import token_uncertainties, aep_uncertainty, token_aep_uncertainty
+        from fairseq.uncertainty import token_uncertainties, seq_uncertainties, token_aep_uncertainty
         if not self.retain_dropout:
             model.eval()
 
@@ -879,7 +879,7 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             pos_mkl_ep = token_mkl_ep.index_select(0, bbsz_idx)[:, :step + 1]
 
             # compute scores per token position
-            aep_tu, aep_du, aep_nmpi = aep_uncertainty(eos_enscores.view(esz, -1), step)
+            aep_tu, aep_du, aep_nmpi = seq_uncertainties(eos_enscores.view(esz, -1), step)
 
             pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
             pos_enscores = enscores.index_select(1, bbsz_idx)[:, :, :step + 1]
@@ -892,7 +892,6 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             # normalize sentence-level scores
             if self.normalize_scores:
                 eos_scores /= (step + 1) ** self.len_penalty
-
             cum_unfin = []
             prev = 0
             for f in finished:
@@ -1036,7 +1035,6 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                         tensor[mask] = tensor[mask][:, :1, :]
                         return tensor.view(-1, tensor.size(-1))
 
-                    print('went here...')
                     # copy tokens, scores and lprobs from the first beam to all beams
                     tokens = replicate_first_beam(tokens, eos_mask_batch_dim)
                     scores = replicate_first_beam(scores, eos_mask_batch_dim)
