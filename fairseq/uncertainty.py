@@ -31,7 +31,7 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
             scores = torch.logsumexp(enscores[:, :, step - 1].unsqueeze(-1), dim=0)
             nstacked_lprobs = stacked_lprobs + enscores[:, :, step - 1].unsqueeze(-1)
         else:
-            nenscores = enscores.close()
+            nenscores = enscores.clone()
             nenscores[:,1:]=nenscores[:,:-1]
             nenscores[:,0]=0.0
             scores = torch.logsumexp(nenscores.unsqueeze(-1), dim=0)
