@@ -39,11 +39,19 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
 
         log_mprobs = torch.logsumexp(nstacked_lprobs, dim=0) - scores
         mprobs = torch.exp(log_mprobs)
+        #print(torch.sum(mprobs,dim=1))
+        #assert torch.all(torch.eq(torch.sum(mprobs,dim=1), torch.tensor(1, dtype=torch.float32))).item()
         expr_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
         expr_eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
         expr_mkl = expr_upper_bound - expr_eoe
         expr_epkl = expr_upper_bound - exe
         expr_mutual_information = expr_eoe-exe
+
+        #assert torch.all(torch.ge(expr_upper_bound, 0.0)).item()
+
+    assert torch.all(torch.ge(expr_eoe, 0.0)).item()
+    #assert torch.all(torch.ge(expr_mkl, 0.0)).item()
+    #assert torch.all(torch.ge(expr_mutual_information, 0.0)).item()
 
     return {'entropy_of_expected': eoe,
             'ep_entropy_of_expected': expr_eoe,
@@ -55,26 +63,34 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
             'MKL': mkl,
             'ep_MKL': expr_mkl}
 
-def seq_uncertainties(eos_enscores, step):
+def seq_uncertainties(eos_enscores, prex_eos_scores, step):
     esz = torch.tensor(eos_enscores.size(0), dtype=torch.float32)
+    prex_total_unc = -prex_eos_scores[:, step]
     step = torch.tensor(step, dtype=torch.float32)
 
     eoe_ub = -torch.mean(eos_enscores, dim=0)
-    total_unc = -(torch.logsumexp(eos_enscores, dim=0) - torch.log(esz))
+
+    expr_total_unc = -(torch.logsumexp(eos_enscores, dim=0) - torch.log(esz))
 
     eoe_ub /= (step+1)
-    total_unc /= (step+1)
+    prex_total_unc /= (step+1)
+    expr_total_unc /= (step+1)
 
-    mkl = eoe_ub - total_unc
+    expr_mkl = eoe_ub - expr_total_unc
+    prex_mkl = eoe_ub - prex_total_unc
 
-    return total_unc, eoe_ub, mkl
-
+    return expr_total_unc, eoe_ub, expr_mkl, prex_total_unc, prex_mkl
 
 def token_aep_uncertainty(pos_enscores):
     esz = torch.tensor(pos_enscores.size(0), dtype=torch.float32)
     eoe_ub = - torch.mean(pos_enscores, dim=0)
+    prex_pos_scores = -(torch.logsumexp(pos_enscores, dim=0) -
+                                           torch.log(esz))
+    expr_scores = -(torch.logsumexp(torch.cumsum(pos_enscores, dim=2), dim=0) -
+                                           torch.log(esz))
+    expr_pos_scores = expr_scores.clone()
+    expr_pos_scores[:,1:] = expr_scores[:, 1:] - expr_scores[:, :-1]
 
-    total_unc = -(torch.logsumexp(pos_enscores, dim=0) - torch.log(esz))
-    know_unc = eoe_ub-total_unc
-
-    return total_unc, eoe_ub, know_unc
+    prex_pos_mkl = eoe_ub - prex_pos_scores
+    expr_pos_mkl = eoe_ub - expr_pos_scores
+    return expr_pos_scores, eoe_ub, expr_pos_mkl, prex_pos_scores, prex_pos_mkl

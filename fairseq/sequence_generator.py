@@ -855,7 +855,7 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                     indicating which hypotheses to finalize
                 eos_scores: A vector of the same size as bbsz_idx containing
                     scores for each hypothesis
-                eos_scores: A vector of the same size as [esz, bbsz_idx] containing
+                eos_enscores: A vector of the same size as [esz, bbsz_idx] containing
                     scores for each hypothesis
             """
             assert bbsz_idx.numel() == eos_scores.numel()
@@ -878,8 +878,10 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             pos_epkl_ep = token_epkl_ep.index_select(0, bbsz_idx)[:, :step + 1]
             pos_mkl_ep = token_mkl_ep.index_select(0, bbsz_idx)[:, :step + 1]
 
+            #torch.mean(pos_tu_ep[i])
+            assert torch.all(torch.ge(pos_tu_ep, 0.0)).item()
+
             # compute scores per token position
-            aep_tu, aep_du, aep_nmpi = seq_uncertainties(eos_enscores.view(esz, -1), step)
 
             pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
             pos_enscores = enscores.index_select(1, bbsz_idx)[:, :, :step + 1]
@@ -888,7 +890,11 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             # convert from cumulative to per-position scores
             pos_scores[:, 1:] = pos_scores[:, 1:] - pos_scores[:, :-1]
             pos_enscores[:, :, 1:] = pos_enscores[:, :, 1:] - pos_enscores[:, :, :-1]
-            token_aep_tu, token_aep_du, token_aep_ku = token_aep_uncertainty(pos_enscores)
+
+            prex_eos_scores = torch.cumsum(torch.logsumexp(pos_enscores, dim=0) - \
+                                           torch.log(torch.tensor(esz, dtype=torch.float32)), dim=1)
+            token_ep_TU, token_DU, token_ep_MKL, token_pe_TU, token_pe_MKL = token_aep_uncertainty(pos_enscores)
+            ep_tu, aep_du, ep_mkl, pe_tu, pe_mkl = seq_uncertainties(eos_enscores.view(esz, -1), prex_eos_scores, step)
             # normalize sentence-level scores
             if self.normalize_scores:
                 eos_scores /= (step + 1) ** self.len_penalty
@@ -909,6 +915,8 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
 
                 if self.match_source_len and step > src_lengths[unfin_idx]:
                     score = -math.inf
+
+
 
                 def get_hypo():
 
@@ -933,24 +941,26 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                                 'ep_mutual_information': pos_mi_ep[i],
                                                 'ep_EPKL': pos_epkl_ep[i],
                                                 'ep_MKL': pos_mkl_ep[i],
-                                                'token-aep-tu': token_aep_tu[i],
-                                                'token-aep-du': token_aep_du[i],
-                                                'token-aep-ku': token_aep_ku[i]
+                                                'token_ep_TU': token_ep_TU[i],
+                                                'token_DU': token_DU[i],
+                                                'token_ep_MKL': token_ep_MKL[i],
+                                                'token_pe_TU': token_pe_TU[i],
+                                                'token_pe_MKL': token_pe_MKL[i]
                                                 },
-                        'sequence_uncertainties': {'entropy_of_expected': torch.mean(pos_tu[i]),
+                        'sequence_uncertainties': {'pe_entropy_of_expected': torch.mean(pos_tu[i]),
                                                    'expected_entropy': torch.mean(pos_du[i]),
-                                                   'mutual_information': torch.mean(pos_mi[i]),
-                                                   'EPKL': torch.mean(pos_epkl[i]),
-                                                   'MKL': torch.mean(pos_mkl[i]),
+                                                   'pe_mutual_information': torch.mean(pos_mi[i]),
+                                                   'pe_EPKL': torch.mean(pos_epkl[i]),
+                                                   'pe_MKL': torch.mean(pos_mkl[i]),
                                                    'ep_entropy_of_expected': torch.mean(pos_tu_ep[i]),
                                                    'ep_mutual_information': torch.mean(pos_mi_ep[i]),
                                                    'ep_EPKL': torch.mean(pos_epkl_ep[i]),
                                                    'ep_MKL': torch.mean(pos_mkl_ep[i]),
-                                                   'score': -score,
-                                                   'aep_tu': aep_tu[i],
-                                                   'aep_du': aep_du[i],
-                                                   'aep_npmi': aep_nmpi[i],
-                                                   'score_npmi': score+aep_du[i],
+                                                   'pe_sTU': pe_tu[i],
+                                                   'ep_sTU': ep_tu[i],
+                                                   'sDU': aep_du[i],
+                                                   'ep_sMKL': ep_mkl[i],
+                                                   'pe_sMKL': pe_mkl[i],
                                                    'log-prob': score*(step + 1)
                                                    }
                     }

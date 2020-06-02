@@ -131,7 +131,7 @@ class SequenceScorerWithUncertainty(SequenceScorer):
         # Uncertainties are derived using an ensemble of models, so we have to have more than 1 model...
         assert len(models) > 1
 
-        from fairseq.uncertainty import token_uncertainties, seq_uncertainties
+        from fairseq.uncertainty import token_uncertainties, seq_uncertainties, token_aep_uncertainty
         """Score a batch of translations."""
         net_input = sample['net_input']
 
@@ -224,13 +224,18 @@ class SequenceScorerWithUncertainty(SequenceScorer):
             score_i = avg_lprobs_i.sum() / tgt_len
             eos_enscores = torch.sum(aep_lprobs[i][:, :tgt_len], dim=1, keepdim=True)
             enscores = torch.cumsum(aep_lprobs[i][:, :tgt_len], dim=1)
-            print(aep_lprobs.size(), eos_enscores.size(), stacked_lprobs.size(), tgt_len)
             tok_unc = token_uncertainties(stacked_lprobs[i][:, :tgt_len, :], enscores=enscores, step=tgt_len, decode=False)
 
             token_aep_tu = -avg_lprobs[i][start_idxs[i]:start_idxs[i] + tgt_len]
             token_aep_du = -torch.mean(aep_lprobs[i][:, :tgt_len], dim=0)
-            print(token_aep_tu.size(), token_aep_du.size())
-            aep_tu, aep_du, aep_nmpi = seq_uncertainties(eos_enscores, tgt_len - 1)
+
+            prex_pos_scores = torch.cumsum(torch.logsumexp(aep_lprobs[i], dim=0) -
+                                           torch.log(torch.tensor(esz, dtype=torch.float32)), dim=0)
+            ep_sTU, sDU, ep_sMKL, pe_sTU, pe_sMKL = seq_uncertainties(eos_enscores,
+                                                                      prex_pos_scores.unsqueeze(0),
+                                                                      tgt_len - 1)
+            token_ep_TU, token_DU, token_ep_MKL, \
+            token_pe_TU, token_pe_MKL = token_aep_uncertainty(aep_lprobs[i][:, :tgt_len].unsqueeze(1))
             if avg_attn is not None:
                 avg_attn_i = avg_attn[i]
                 alignment = utils.extract_hard_alignment(
@@ -258,25 +263,27 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                     'ep_mutual_information': tok_unc['ep_mutual_information'][:tgt_len],
                     'ep_EPKL': tok_unc['ep_EPKL'][:tgt_len],
                     'ep_MKL': tok_unc['ep_MKL'][:tgt_len],
-                    'token-aep-tu': token_aep_tu,
-                    'token-aep-du': token_aep_du,
-                    'token-aep-ku': token_aep_du - token_aep_tu
+                    'token_ep_TU': token_ep_TU.squeeze(),
+                    'token_DU': token_DU.squeeze(),
+                    'token_ep_MKL': token_ep_MKL.squeeze(),
+                    'token_pe_TU': token_pe_TU.squeeze(),
+                    'token_pe_MKL': token_pe_MKL.squeeze()
                 },
                 'sequence_uncertainties': {
-                    'entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][:tgt_len]),
+                    'pe_entropy_of_expected': torch.mean(tok_unc['entropy_of_expected'][:tgt_len]),
                     'expected_entropy': torch.mean(tok_unc['expected_entropy'][:tgt_len]),
-                    'mutual_information': torch.mean(tok_unc['mutual_information'][:tgt_len]),
-                    'EPKL': torch.mean(tok_unc['EPKL'][:tgt_len]),
-                    'MKL': torch.mean(tok_unc['MKL'][:tgt_len]),
+                    'pe_mutual_information': torch.mean(tok_unc['mutual_information'][:tgt_len]),
+                    'pe_EPKL': torch.mean(tok_unc['EPKL'][:tgt_len]),
+                    'pe_MKL': torch.mean(tok_unc['MKL'][:tgt_len]),
                     'ep_entropy_of_expected': torch.mean(tok_unc['ep_entropy_of_expected'][:tgt_len]),
                     'ep_mutual_information': torch.mean(tok_unc['ep_mutual_information'][:tgt_len]),
                     'ep_EPKL': torch.mean(tok_unc['ep_EPKL'][:tgt_len]),
                     'ep_MKL': torch.mean(tok_unc['ep_MKL'][:tgt_len]),
-                    'score': -score_i,
-                    'aep_tu': aep_tu.squeeze(),
-                    'aep_du': aep_du.squeeze(),
-                    'aep_npmi': aep_nmpi.squeeze(),
-                    'score_npmi': aep_du.squeeze()+score_i,
+                    'pe_sTU': pe_sTU.squeeze(),
+                    'ep_sTU': ep_sTU.squeeze(),
+                    'sDU': sDU.squeeze(),
+                    'ep_sMKL': ep_sMKL.squeeze(),
+                    'pe_sMKL': pe_sMKL.squeeze(),
                     'log-prob': score_i*tgt_len
                 },
             }])
