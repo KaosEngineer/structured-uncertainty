@@ -279,7 +279,7 @@ class DistillationTask(TranslationTask):
         from fairseq import models
         model = models.build_model(args, self)
         if args.init_from_model is not None:
-            model.load_state_dict(self.ensemble[args.init_from_model].state_dict())
+            model.load_state_dict(self.ensemble[args.init_from_model].state_dict(), strict=False)
         if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
             freeze_module_params(model.decoder)
