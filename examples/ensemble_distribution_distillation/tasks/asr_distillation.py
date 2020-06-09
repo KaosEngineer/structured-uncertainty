@@ -25,16 +25,25 @@ class ASRDistillationTask(SpeechRecognitionTask):
         parser.add_argument('--freeze-weights-until', type=int, help='Freeze encoder/decoder weights until a given step')
         parser.add_argument('--init-temp', type=float, default=10)
         parser.add_argument('--final-temp', type=float, default=1)
+        parser.add_argument('--init-xent-weight', type=float, default=0)
+        parser.add_argument('--final-xent-weight', type=float, default=0)
         parser.add_argument('--parametrization', choices=prob_parametrization.keys(), default='exp')
 
     def __init__(self, args, tgt_dict, models):
         super().__init__(args, tgt_dict)
         self.ensemble = models
+
         self.anneal_start = args.anneal_start
         self.anneal_end = args.anneal_end
+
         self.init_temp = args.init_temp
         self.final_temp = args.final_temp
         self.temp = args.init_temp
+
+        self.init_xent_weight = args.init_xent_weight
+        self.final_xent_weight = args.final_xent_weight
+        self.xent_weight = args.init_xent_weight
+
         self.freeze_weights_until = args.freeze_weights_until
         self.unfreeze_model = self.freeze_weights_until is not None and self.freeze_weights_until > 0
         self.parametrization = args.parametrization
@@ -248,11 +257,14 @@ class ASRDistillationTask(SpeechRecognitionTask):
     def update_step(self, num_updates):
         if num_updates < self.anneal_start:
             self.temp = self.init_temp
+            self.xent_weight = self.init_went_weight
         elif num_updates > self.anneal_end:
             self.temp = self.final_temp
+            self.xent_weight = self.final_xent_weight
         else:
             progress = (num_updates - self.anneal_start) / (self.anneal_end - self.anneal_start)
             self.temp = self.init_temp + (self.final_temp - self.init_temp) * progress
+            self.xent_weight = self.init_xent_weight + (self.final_xent_weight - self.init_xent_weight) * progress
         if self.freeze_weights_until == num_updates:
             self.unfreeze_model = True
 

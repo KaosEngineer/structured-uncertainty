@@ -8,21 +8,40 @@ from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import label_smoothed_nll_loss
 
 
+def compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index, reduce):
+    teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+
+    # average loss over all teacher distributions
+    lprobs = lprobs.unsqueeze(2).expand_as(teacher_probs)
+    loss = torch.nn.functional.kl_div(lprobs, teacher_probs, reduction='none').mean(2).sum(-1)
+
+    # mask loss for padding tokens
+    pad_mask = target.eq(ignore_index)
+    loss.masked_fill_(pad_mask, 0.)
+
+    if reduce:
+        return torch.sum(loss)
+    return loss
+
+
 class _DistillationCriterionBase(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
         self.xent_weight = args.xent_weight
         self.label_smoothing = args.label_smoothing
         self.task = task
+        self.xent_type = args.xent_type
 
     @staticmethod
     def add_args(parser):
         """Add criterion-specific arguments to the parser."""
         parser.add_argument('--label-smoothing', default=0., type=float, metavar='D',
                             help='epsilon for label smoothing, 0 means no label smoothing')
-        parser.add_argument('--xent-weight', default=0, type=float)
+        parser.add_argument('--xent-type', choices=('xent', 'forward_kl'), default='xent')
 
     def forward(self, model, sample, reduce=True):
+        xent_weight = self.task.xent_weight
+
         # batch x len x n_tokens
         net_output = model(**sample['net_input'])
 
@@ -32,14 +51,19 @@ class _DistillationCriterionBase(FairseqCriterion):
         loss = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce)
 
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = model.get_targets(sample, net_output).view(-1, 1)
+        lprobs = lprobs
+        target = model.get_targets(sample, net_output)
 
         xent_loss, nll_loss = label_smoothed_nll_loss(
-            lprobs, target, self.label_smoothing, ignore_index=self.padding_idx, reduce=reduce,
+            lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), self.label_smoothing, ignore_index=self.padding_idx, reduce=reduce,
         )
 
-        total_loss = loss + self.xent_weight * xent_loss
+        if self.xent_type == 'xent':
+            total_loss = loss + self.xent_weight * xent_loss
+
+        elif self.xent_type == 'forward_kl':
+            forward_kl = compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index=self.padding_idx, reduce=reduce)
+            total_loss = loss + self.xent_weight * forward_kl
 
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
@@ -48,6 +72,7 @@ class _DistillationCriterionBase(FairseqCriterion):
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
+            'xent_weight': xent_weight,
         }
         return total_loss, sample_size, logging_output
 
@@ -63,6 +88,7 @@ class _DistillationCriterionBase(FairseqCriterion):
             'ntokens': ntokens,
             'nsentences': nsentences,
             'sample_size': sample_size,
+            'xent_weight': sum(log.get('xent_weight', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
         }
 
 
