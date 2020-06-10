@@ -266,7 +266,7 @@ class DistillationTask(TranslationTask):
     def update_step(self, num_updates):
         if num_updates < self.anneal_start:
             self.temp = self.init_temp
-            self.xent_weight = self.init_went_weight
+            self.xent_weight = self.init_xent_weight
         elif num_updates > self.anneal_end:
             self.temp = self.final_temp
             self.xent_weight = self.final_xent_weight
