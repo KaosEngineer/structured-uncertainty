@@ -27,7 +27,6 @@ def compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index, reduc
 class _DistillationCriterionBase(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.xent_weight = args.xent_weight
         self.label_smoothing = args.label_smoothing
         self.task = task
         self.xent_type = args.xent_type
@@ -59,11 +58,11 @@ class _DistillationCriterionBase(FairseqCriterion):
         )
 
         if self.xent_type == 'xent':
-            total_loss = loss + self.xent_weight * xent_loss
+            total_loss = loss + xent_weight * xent_loss
 
         elif self.xent_type == 'forward_kl':
             forward_kl = compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index=self.padding_idx, reduce=reduce)
-            total_loss = loss + self.xent_weight * forward_kl
+            total_loss = loss + xent_weight * forward_kl
 
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
