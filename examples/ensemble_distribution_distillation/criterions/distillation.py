@@ -53,16 +53,24 @@ class _DistillationCriterionBase(FairseqCriterion):
         lprobs = lprobs
         target = model.get_targets(sample, net_output)
 
-        xent_loss, nll_loss = label_smoothed_nll_loss(
-            lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), self.label_smoothing, ignore_index=self.padding_idx, reduce=reduce,
-        )
-
         if self.xent_type == 'xent':
+            xent_loss, nll_loss = label_smoothed_nll_loss(
+                lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), self.label_smoothing, ignore_index=self.padding_idx, reduce=reduce,
+            )
             total_loss = loss + xent_weight * xent_loss
 
         elif self.xent_type == 'forward_kl':
+            with torch.no_grad():
+                xent_loss, nll_loss = label_smoothed_nll_loss(
+                    lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), self.label_smoothing, ignore_index=self.padding_idx,
+                    reduce=reduce,
+                )
+
             forward_kl = compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index=self.padding_idx, reduce=reduce)
             total_loss = loss + xent_weight * forward_kl
+
+        else:
+            raise KeyError
 
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
