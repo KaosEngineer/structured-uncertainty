@@ -7,6 +7,7 @@ from sklearn.metrics import auc
 import matplotlib.pyplot as plt
 import seaborn as sns
 from joblib import Parallel, delayed
+from scipy.special import softmax
 
 sns.set()
 
@@ -229,22 +230,31 @@ def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
     exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float32)
     mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float32)
     epkl = np.loadtxt(os.path.join(path, 'epkl.txt'), dtype=np.float32)
+    mkl = np.loadtxt(os.path.join(path, 'mkl.txt'), dtype=np.float32)
     score = np.loadtxt(os.path.join(path, 'score.txt'), dtype=np.float32)
     aep_tu = np.loadtxt(os.path.join(path, 'aep_tu.txt'), dtype=np.float32)
     aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float32)
     npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float32)
-    probs = np.exp(np.loadtxt(os.path.join(path, 'log_probs.txt'), dtype=np.float32))
-    mkl = epkl-mi
-    unc_dict = {'Total Uncertainty': eoe,
+    lprobs = np.loadtxt(os.path.join(path, 'log_probs.txt'), dtype=np.float32)
+
+    ep_eoe = np.loadtxt(os.path.join(path, 'ep_entropy_expected.txt'), dtype=np.float32)
+    ep_mi = np.loadtxt(os.path.join(path, 'ep_mutual_information.txt'), dtype=np.float32)
+    ep_epkl = np.loadtxt(os.path.join(path, 'ep_epkl.txt'), dtype=np.float32)
+    ep_mkl = np.loadtxt(os.path.join(path, 'ep_mkl.txt'), dtype=np.float32)
+
+    unc_dict = {'Total Uncertainty-PE': eoe,
+                'Total Uncertainty-EP': ep_eoe,
                 'SCR-PE': score,
-                'Data Uncertainty': exe,
-                'E-SCR': aep_du,
-                'Mutual Information': mi,
-                'EPKL': epkl,
-                'MKL': mkl,
-                'MKL-PE': aep_du - score,
                 'SCR-EP': aep_tu,
-                'MKL-EP': npmi}
+                'Data Uncertainty': exe,
+                'Mutual Information-PE': mi,
+                'Mutual Information-EP': ep_mi,
+                'EPKL-PE': epkl,
+                'EPKL-EP': ep_epkl,
+                'MKL': mkl,
+                'ep_MKL': ep_mkl,
+                'sMKL-PE': aep_du - score,
+                'sMKL-EP': npmi}
     if os.path.exists(os.path.join(path, 'xbleu.txt')):
         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
         unc_dict['XBLEU'] = xbleu
@@ -252,14 +262,13 @@ def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
         xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
         unc_dict['XWER'] = xwer
 
-    weights = probs.reshape([-1, beam_width])[:, :n_best]
-    weights = weights / np.sum(weights, axis=1, keepdims=True)
+    weights = softmax(lprobs.reshape([-1, beam_width])[:, :n_best], axis=1)
     for key in unc_dict.keys():
         uncertainties = unc_dict[key]
         if beam_search:
             unc_dict[key] = np.sum(weights * np.reshape(uncertainties, [-1, beam_width])[:, :n_best], axis=1)
         else:
-            unc_dict[key] = np.mean(np.reshape(uncertainties, [-1, beam_width])[:, : n_best], axis=1)
+            unc_dict[key] = np.mean(np.reshape(uncertainties, [-1, beam_width])[:, :n_best], axis=1)
     return unc_dict
 
 
@@ -290,15 +299,16 @@ def main():
             wer, random_wer, percentage, perfect_wer, auc_rr = reject_predictions_wer(refs, hypos, uncertainties[key],
                                                                                       args.path)
             out_dict[key] = [wer, percentage, random_wer, perfect_wer, auc_rr]
-        plt.plot(out_dict[key][1], out_dict[key][3], 'k--', lw=2)
+        plt.plot(out_dict[key][1], out_dict[key][3], 'r--', lw=2)
         for key in out_dict.keys():
-            plt.plot(out_dict[key][1], out_dict[key][0])
+            if key == 'SCR-PE':
+                plt.plot(out_dict[key][1], out_dict[key][0])
         plt.plot(out_dict[key][1], out_dict[key][2], 'k--', lw=2)
         plt.ylim(0.0, out_dict[key][2][0])
         plt.xlim(0.0, 100.0)
         plt.xlabel('Percentage Rejected')
         plt.ylabel('WER (%)')
-        plt.legend(['Oracle'] + list(out_dict.keys()) + ['Expected Random'])
+        plt.legend(['Oracle', 'Joint-Seq TU', 'Expected Random'])
         plt.savefig(os.path.join(args.path, 'seq_reject.png'), bbox_inches='tight', dpi=300)
         plt.close()
 
@@ -309,15 +319,16 @@ def main():
                                                                                            uncertainties[key],
                                                                                            args.path)
             out_dict[key] = [bleus, percentage, random_bleu, perfect_bleu, auc_rr]
-        plt.plot(out_dict[key][1], out_dict[key][3], 'k--', lw=2)
+        plt.plot(out_dict[key][1], out_dict[key][3], 'r--', lw=2)
         for key in out_dict.keys():
-            plt.plot(out_dict[key][1], out_dict[key][0])
+            if key == 'SCR-PE':
+                plt.plot(out_dict[key][1], out_dict[key][0])
         plt.plot(out_dict[key][1], out_dict[key][2], 'k--', lw=2)
         plt.ylim(out_dict[key][2][0], 100.0)
         plt.xlim(0.0, 100.0)
         plt.xlabel('Percentage Rejected')
         plt.ylabel('Bleu')
-        plt.legend(['Oracle'] + list(out_dict.keys()) + ['Expected Random'])
+        plt.legend(['Oracle', 'Joint-Seq TU', 'Expected Random'])
         plt.savefig(os.path.join(args.path, 'seq_reject.png'), bbox_inches='tight', dpi=300)
         plt.close()
 

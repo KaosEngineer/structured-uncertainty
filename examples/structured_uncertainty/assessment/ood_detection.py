@@ -12,6 +12,7 @@ from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import auc
 import seaborn as sns
 import argparse
+from scipy.special import softmax
 
 sns.set()
 sns.set(font_scale=1.25)
@@ -33,26 +34,35 @@ parser.add_argument('--beam_search', action='store_true',
 
 
 def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
-    eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float32)
-    exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float32)
-    mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float32)
-    epkl = np.loadtxt(os.path.join(path, 'epkl.txt'), dtype=np.float32)
-    score = np.loadtxt(os.path.join(path, 'score.txt'), dtype=np.float32)
-    aep_tu = np.loadtxt(os.path.join(path, 'aep_tu.txt'), dtype=np.float32)
-    aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float32)
-    npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float32)
-    probs = np.exp(np.loadtxt(os.path.join(path, 'log_probs.txt'), dtype=np.float32))
-    mkl = epkl-mi
-    unc_dict = {'Total Uncertainty': eoe,
+    eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float64)
+    exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float64)
+    mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float64)
+    epkl = np.loadtxt(os.path.join(path, 'epkl.txt'), dtype=np.float64)
+    mkl = np.loadtxt(os.path.join(path, 'mkl.txt'), dtype=np.float64)
+    score = np.loadtxt(os.path.join(path, 'score.txt'), dtype=np.float64)
+    aep_tu = np.loadtxt(os.path.join(path, 'aep_tu.txt'), dtype=np.float64)
+    aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float64)
+    npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float64)
+    lprobs = np.loadtxt(os.path.join(path, 'log_probs.txt'), dtype=np.float64)
+
+    ep_eoe = np.loadtxt(os.path.join(path, 'ep_entropy_expected.txt'), dtype=np.float64)
+    ep_mi = np.loadtxt(os.path.join(path, 'ep_mutual_information.txt'), dtype=np.float64)
+    ep_epkl = np.loadtxt(os.path.join(path, 'ep_epkl.txt'), dtype=np.float64)
+    ep_mkl = np.loadtxt(os.path.join(path, 'ep_mkl.txt'), dtype=np.float64)
+
+    unc_dict = {'Total Uncertainty-PE': eoe,
+                'Total Uncertainty-EP': ep_eoe,
                 'SCR-PE': score,
-                'Data Uncertainty': exe,
-                'E-SCR': aep_du,
-                'Mutual Information': mi,
-                'EPKL': epkl,
-                'MKL': mkl,
-                'MKL-PE': aep_du - score,
                 'SCR-EP': aep_tu,
-                'MKL-EP': npmi}
+                'Data Uncertainty': exe,
+                'Mutual Information-PE': mi,
+                'Mutual Information-EP': ep_mi,
+                'EPKL-PE': epkl,
+                'EPKL-EP': ep_epkl,
+                'MKL': mkl,
+                'ep_MKL': ep_mkl,
+                'sMKL-PE': aep_du - score,
+                'sMKL-EP': npmi}
     if os.path.exists(os.path.join(path, 'xbleu.txt')):
         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
         unc_dict['XBLEU'] = xbleu
@@ -60,8 +70,9 @@ def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
         xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
         unc_dict['XWER'] = xwer
 
-    weights = probs.reshape([-1, beam_width])[:, :n_best]
-    weights = weights / np.sum(weights, axis=1, keepdims=True)
+
+    weights = softmax(lprobs.reshape([-1, beam_width])[:, :n_best], axis=1)
+    assert np.all((np.isfinite(weights)))
     for key in unc_dict.keys():
         uncertainties = unc_dict[key]
         if beam_search:
