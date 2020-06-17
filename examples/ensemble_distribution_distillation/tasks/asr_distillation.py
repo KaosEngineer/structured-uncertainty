@@ -4,19 +4,20 @@ from types import MethodType
 import torch
 
 from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params
-from fairseq import options, checkpoint_utils
-from fairseq.data import data_utils
+from examples.speech_recognition.data.replabels import replabel_symbol
+from examples.speech_recognition.tasks.speech_recognition import SpeechRecognitionTask
+from fairseq import checkpoint_utils
+from fairseq.data import Dictionary
 from fairseq.data.data_utils import collate_tokens
 from fairseq.tasks import register_task
-from fairseq.tasks.translation import TranslationTask
 from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
 
-@register_task('distillation')
-class DistillationTask(TranslationTask):
+@register_task('asr_distillation')
+class ASRDistillationTask(SpeechRecognitionTask):
     @staticmethod
     def add_args(parser):
-        TranslationTask.add_args(parser)
+        SpeechRecognitionTask.add_args(parser)
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
         parser.add_argument('--anneal-start', type=int, help='First update from which to start temperature annealing')
         parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
@@ -28,8 +29,8 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--final-xent-weight', type=float, default=0)
         parser.add_argument('--parametrization', choices=prob_parametrization.keys(), default='exp')
 
-    def __init__(self, args, src_dict, tgt_dict, models):
-        super().__init__(args, src_dict, tgt_dict)
+    def __init__(self, args, tgt_dict, models):
+        super().__init__(args, tgt_dict)
         self.ensemble = models
 
         self.anneal_start = args.anneal_start
@@ -56,30 +57,25 @@ class DistillationTask(TranslationTask):
         Args:
             args (argparse.Namespace): parsed command-line arguments
         """
-        args.left_pad_source = options.eval_bool(args.left_pad_source)
-        args.left_pad_target = options.eval_bool(args.left_pad_target)
+        dict_path = os.path.join(args.data, "dict.txt")
+        if not os.path.isfile(dict_path):
+            raise FileNotFoundError("Dict not found: {}".format(dict_path))
+        tgt_dict = Dictionary.load(dict_path)
 
-        paths = args.data.split(os.pathsep)
-        assert len(paths) > 0
-        # find language pair automatically
-        if args.source_lang is None or args.target_lang is None:
-            args.source_lang, args.target_lang = data_utils.infer_language_pair(paths[0])
-        if args.source_lang is None or args.target_lang is None:
-            raise Exception('Could not infer language pair, please provide it explicitly')
+        if args.criterion == "ctc_loss":
+            tgt_dict.add_symbol("<ctc_blank>")
+        elif args.criterion == "asg_loss":
+            for i in range(1, args.max_replabel + 1):
+                tgt_dict.add_symbol(replabel_symbol(i))
 
-        # load dictionaries
-        src_dict = cls.load_dictionary(os.path.join(paths[0], 'dict.{}.txt'.format(args.source_lang)))
-        tgt_dict = cls.load_dictionary(os.path.join(paths[0], 'dict.{}.txt'.format(args.target_lang)))
-        assert src_dict.pad() == tgt_dict.pad()
-        assert src_dict.eos() == tgt_dict.eos()
-        assert src_dict.unk() == tgt_dict.unk()
+        print("| dictionary: {} types".format(len(tgt_dict)))
 
         if args.ensemble_paths is not None:
             # Load ensemble
             print('| loading model(s) from {}'.format(args.ensemble_paths))
             models, _model_args = checkpoint_utils.load_model_ensemble(
                 args.ensemble_paths.split(','),
-                task=TranslationTask.setup_task(args, **kwargs)
+                task=SpeechRecognitionTask.setup_task(args, **kwargs)
             )
             assert args.init_from_model is None or args.init_from_model < len(models)
             use_cuda = torch.cuda.is_available() and not args.cpu
@@ -93,7 +89,7 @@ class DistillationTask(TranslationTask):
         else:
             models = []
 
-        return cls(args, src_dict, tgt_dict, models)
+        return cls(args, tgt_dict, models)
 
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False):
         """
@@ -197,25 +193,20 @@ class DistillationTask(TranslationTask):
         if len(models) != 1:
             raise NotImplementedError('Uncertainty estimation for ensemble of distilled models is not implemented')
         model = models[0]
+        encoder_out = model.encoder(**sample['net_input'])
 
-        tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
+        bsz = sample['nsentences']
+        beam_size = len(hypos[0])
+        device = sample['net_input']['src_tokens'].device
+
+        tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent],
                                 eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad())
-        prev_output = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
-                                     eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad(), move_eos_to_beginning=True)
+        prev_output = torch.cat([tokens.new_full((bsz * beam_size, 1), self.tgt_dict.eos()), tokens], dim=1)
 
-        src_tokens = sample['net_input']['src_tokens']
-        src_lengths = sample['net_input']['src_lengths']
-        prev_tokens = sample['net_input']['prev_output_tokens']
-
-        sample['net_input']['src_tokens'] = torch.repeat_interleave(sample['net_input']['src_tokens'], self.args.nbest, dim=0)
-        sample['net_input']['src_lengths'] = torch.repeat_interleave(sample['net_input']['src_lengths'], self.args.nbest, dim=0)
-        sample['net_input']['prev_output_tokens'] = prev_output
-
-        logits, attn = model(**sample['net_input'])
-
-        sample['net_input']['src_tokens'] = src_tokens
-        sample['net_input']['src_lengths'] = src_lengths
-        sample['net_input']['prev_output_tokens'] = prev_tokens
+        new_order = torch.arange(bsz, device=device, dtype=torch.long).view(-1, 1).repeat(1, beam_size).view(-1)
+        encoder_out = model.encoder.reorder_encoder_out(encoder_out, new_order)
+        logits, attn = model.decoder(prev_output, encoder_out=encoder_out)
+        logits = logits[:, :-1, :]  # remove logits after last EOS
 
         unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
         concentrations = unnormalized_probs.sum(dim=-1, keepdim=True)
@@ -231,8 +222,8 @@ class DistillationTask(TranslationTask):
                                                                                                     normalized_logprobs, tokens, mask)
 
         for i, sent in enumerate(hypos):
-            for j, hypo in enumerate(sent[:self.args.nbest]):
-                ind = i * self.args.nbest + j
+            for j, hypo in enumerate(sent):
+                ind = i * beam_size + j
                 hypo['token_uncertainties'] = {
                     'entropy_of_expected': entropy_of_expected[ind],
                     'expected_entropy': expected_entropy[ind],
@@ -291,18 +282,12 @@ class DistillationTask(TranslationTask):
         from fairseq import models
         model = models.build_model(args, self)
         if args.init_from_model is not None:
-            state_dict = self.ensemble[args.init_from_model].state_dict()
-            if not model.decoder.share_input_output_embed:
-                state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
-            model.load_state_dict(state_dict, strict=False)
-
+            model.load_state_dict(self.ensemble[args.init_from_model].state_dict())
         if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
             freeze_module_params(model.decoder)
-            if model.decoder.share_input_output_embed:
-                model.decoder.embed_tokens.weight.requires_grad = True
-            else:
-                model.decoder.embed_out.requires_grad = True
+            # VGGTransformer-specific
+            model.decoder.fc_out.requires_grad = True
 
         if args.parametrization != 'exp':
             # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers

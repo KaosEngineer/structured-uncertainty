@@ -91,7 +91,11 @@ class FairseqOptimizer(object):
         if max_norm > 0:
             return torch.nn.utils.clip_grad_norm_(self.params, max_norm)
         else:
-            return math.sqrt(sum(p.grad.data.norm()**2 for p in self.params if p.grad is not None))
+            return math.sqrt(sum(p.grad.data.norm() ** 2 for p in self.params if p.grad is not None))
+
+    def clip_grad_value(self, max_value):
+        if max_value > 0:
+            torch.nn.utils.clip_grad_value_(self.params, max_value)
 
     def step(self, closure=None):
         """Performs a single optimization step."""

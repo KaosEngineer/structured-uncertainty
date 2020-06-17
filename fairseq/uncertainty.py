@@ -94,3 +94,30 @@ def token_aep_uncertainty(pos_enscores):
     prex_pos_mkl = eoe_ub - prex_pos_scores
     expr_pos_mkl = eoe_ub - expr_pos_scores
     return expr_pos_scores, eoe_ub, expr_pos_mkl, prex_pos_scores, prex_pos_mkl
+
+
+EPS = 1e-8
+
+
+def entropy(probs, dim=-1):
+    return -(probs * (probs + EPS).log()).sum(dim=dim)
+
+
+def compute_token_dirichlet_uncertainties(dirichlet_params, concentrations, expected_dirichlet):
+    batch_size, num_tokens, vocab_size = dirichlet_params.size()
+
+    entropy_of_expected = entropy(expected_dirichlet)
+    expected_entropy = (-expected_dirichlet * (torch.digamma(dirichlet_params + 1) - torch.digamma(concentrations + 1))).sum(dim=-1)
+    mutual_information = entropy_of_expected - expected_entropy
+
+    epkl = (vocab_size - 1) / concentrations.squeeze(2)
+    return entropy_of_expected, expected_entropy, mutual_information, epkl
+
+
+def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, expected_logprobs, predict_inds, mask):
+    log_probs = (expected_logprobs.gather(-1, predict_inds.unsqueeze(-1)).squeeze(2) * mask).sum(dim=1)
+    scores = -log_probs / mask.sum(dim=1)
+    expected_scores = ((torch.digamma(concentrations + 1) - torch.digamma(dirichlet_params + 1)).sum(dim=2)
+                       * mask).sum(dim=1) / mask.sum(dim=1)
+    expected_pmi = scores - expected_scores
+    return log_probs, scores, expected_scores, expected_pmi

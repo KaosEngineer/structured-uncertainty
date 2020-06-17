@@ -354,6 +354,7 @@ def add_optimization_args(parser):
                        help='force stop training at specified update')
     group.add_argument('--clip-norm', default=25, type=float, metavar='NORM',
                        help='clip threshold of gradients')
+    group.add_argument('--clip-value', default=0, type=float, help='clip gradients by value (after norm)')
     group.add_argument('--sentence-avg', action='store_true',
                        help='normalize gradients by the number of sentences in a batch'
                             ' (default is to normalize by number of tokens)')
