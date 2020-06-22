@@ -314,10 +314,13 @@ class DistillationTask(TranslationTask):
         from fairseq import models
         model = models.build_model(args, self)
         if args.init_from_model is not None:
-            state_dict = self.ensemble[args.init_from_model].state_dict()
-            if not model.decoder.share_input_output_embed:
-                state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
-            model.load_state_dict(state_dict, strict=False)
+            if self.ensemble:
+                state_dict = self.ensemble[args.init_from_model].state_dict()
+                if not model.decoder.share_input_output_embed:
+                    state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
+                model.load_state_dict(state_dict, strict=False)
+            else:
+                print('Warning: ensemble_paths was empty and init_from_model is not None. Parameters were not overwritten')
 
         if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
