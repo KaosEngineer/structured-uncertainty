@@ -26,32 +26,32 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
         expr_mkl = mkl
         expr_epkl = epkl
         expr_mutual_information = mutual_info
-    elif step >0:
+    elif step > 0:
         if decode:
             scores = torch.logsumexp(enscores[:, :, step - 1].unsqueeze(-1), dim=0)
             nstacked_lprobs = stacked_lprobs + enscores[:, :, step - 1].unsqueeze(-1)
         else:
             nenscores = enscores.clone()
-            nenscores[:,1:]=nenscores[:,:-1]
-            nenscores[:,0]=0.0
+            nenscores[:, 1:] = nenscores[:, :-1]
+            nenscores[:, 0] = 0.0
             scores = torch.logsumexp(nenscores.unsqueeze(-1), dim=0)
-            nstacked_lprobs = stacked_lprobs +nenscores.unsqueeze(-1)
+            nstacked_lprobs = stacked_lprobs + nenscores.unsqueeze(-1)
 
         log_mprobs = torch.logsumexp(nstacked_lprobs, dim=0) - scores
         mprobs = torch.exp(log_mprobs)
-        #print(torch.sum(mprobs,dim=1))
-        #assert torch.all(torch.eq(torch.sum(mprobs,dim=1), torch.tensor(1, dtype=torch.float32))).item()
+        # print(torch.sum(mprobs,dim=1))
+        # assert torch.all(torch.eq(torch.sum(mprobs,dim=1), torch.tensor(1, dtype=torch.float32))).item()
         expr_upper_bound = -torch.sum(mprobs * mlog_probs, dim=mdim)
         expr_eoe = -torch.sum(mprobs * log_mprobs, dim=mdim)
         expr_mkl = expr_upper_bound - expr_eoe
         expr_epkl = expr_upper_bound - exe
-        expr_mutual_information = expr_eoe-exe
+        expr_mutual_information = expr_eoe - exe
 
-        #assert torch.all(torch.ge(expr_upper_bound, 0.0)).item()
+        # assert torch.all(torch.ge(expr_upper_bound, 0.0)).item()
 
     assert torch.all(torch.ge(expr_eoe, 0.0)).item()
-    #assert torch.all(torch.ge(expr_mkl, 0.0)).item()
-    #assert torch.all(torch.ge(expr_mutual_information, 0.0)).item()
+    # assert torch.all(torch.ge(expr_mkl, 0.0)).item()
+    # assert torch.all(torch.ge(expr_mutual_information, 0.0)).item()
 
     return {'entropy_of_expected': eoe,
             'ep_entropy_of_expected': expr_eoe,
@@ -63,6 +63,7 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
             'MKL': mkl,
             'ep_MKL': expr_mkl}
 
+
 def seq_uncertainties(eos_enscores, prex_eos_scores, step):
     esz = torch.tensor(eos_enscores.size(0), dtype=torch.float32)
     prex_total_unc = -prex_eos_scores[:, step]
@@ -72,24 +73,23 @@ def seq_uncertainties(eos_enscores, prex_eos_scores, step):
 
     expr_total_unc = -(torch.logsumexp(eos_enscores, dim=0) - torch.log(esz))
 
-    eoe_ub /= (step+1)
-    prex_total_unc /= (step+1)
-    expr_total_unc /= (step+1)
+    eoe_ub /= (step + 1)
+    prex_total_unc /= (step + 1)
+    expr_total_unc /= (step + 1)
 
     expr_mkl = eoe_ub - expr_total_unc
     prex_mkl = eoe_ub - prex_total_unc
 
     return expr_total_unc, eoe_ub, expr_mkl, prex_total_unc, prex_mkl
 
+
 def token_aep_uncertainty(pos_enscores):
     esz = torch.tensor(pos_enscores.size(0), dtype=torch.float32)
     eoe_ub = - torch.mean(pos_enscores, dim=0)
-    prex_pos_scores = -(torch.logsumexp(pos_enscores, dim=0) -
-                                           torch.log(esz))
-    expr_scores = -(torch.logsumexp(torch.cumsum(pos_enscores, dim=2), dim=0) -
-                                           torch.log(esz))
+    prex_pos_scores = -(torch.logsumexp(pos_enscores, dim=0) - torch.log(esz))
+    expr_scores = -(torch.logsumexp(torch.cumsum(pos_enscores, dim=2), dim=0) - torch.log(esz))
     expr_pos_scores = expr_scores.clone()
-    expr_pos_scores[:,1:] = expr_scores[:, 1:] - expr_scores[:, :-1]
+    expr_pos_scores[:, 1:] = expr_scores[:, 1:] - expr_scores[:, :-1]
 
     prex_pos_mkl = eoe_ub - prex_pos_scores
     expr_pos_mkl = eoe_ub - expr_pos_scores
@@ -108,16 +108,29 @@ def compute_token_dirichlet_uncertainties(dirichlet_params, concentrations, expe
 
     entropy_of_expected = entropy(expected_dirichlet)
     expected_entropy = (-expected_dirichlet * (torch.digamma(dirichlet_params + 1) - torch.digamma(concentrations + 1))).sum(dim=-1)
+
     mutual_information = entropy_of_expected - expected_entropy
-
+    # mi >=0
     epkl = (vocab_size - 1) / concentrations.squeeze(2)
-    return entropy_of_expected, expected_entropy, mutual_information, epkl
+    # epkl >=0
+    mkl = (-expected_dirichlet * (torch.digamma(dirichlet_params) - torch.digamma(concentrations))).sum(dim=-1) - entropy_of_expected
+    # epkl >=0
+    assert torch.allclose(epkl, mutual_information + mkl)
+
+    return entropy_of_expected, expected_entropy, mutual_information, epkl, mkl
 
 
-def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, expected_logprobs, predict_inds, mask):
-    log_probs = (expected_logprobs.gather(-1, predict_inds.unsqueeze(-1)).squeeze(2) * mask).sum(dim=1)
+def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, log_expected_probs, predict_inds, mask):
+    unsqueezed_inds = predict_inds.unsqueeze(-1)
+
+    token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2) * mask
+
+    log_probs = token_log_probs.sum(dim=1)
     scores = -log_probs / mask.sum(dim=1)
-    expected_scores = ((torch.digamma(concentrations + 1) - torch.digamma(dirichlet_params + 1)).sum(dim=2)
-                       * mask).sum(dim=1) / mask.sum(dim=1)
-    expected_pmi = scores - expected_scores
-    return log_probs, scores, expected_scores, expected_pmi
+    # scores >=0
+
+    token_scores_mkl = ((torch.digamma(concentrations) - torch.digamma(
+        dirichlet_params.gather(-1, unsqueezed_inds).squeeze(2))) * mask) + token_log_probs
+
+    scores_mkl = token_scores_mkl.sum(1) / mask.sum(1)
+    return log_probs, scores, scores_mkl

@@ -224,31 +224,54 @@ class DistillationTask(TranslationTask):
         normalized_logprobs = normalized_probs.log()
 
         mask = (tokens != self.tgt_dict.pad()).type(logits.dtype)
-        entropy_of_expected, expected_entropy, mutual_information, epkl = compute_token_dirichlet_uncertainties(unnormalized_probs,
-                                                                                                                concentrations,
-                                                                                                                normalized_probs)
-        log_probs, scores, expected_scores, expected_pmi = compute_sequence_dirichlet_uncertainties(unnormalized_probs, concentrations,
-                                                                                                    normalized_logprobs, tokens, mask)
+        entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(unnormalized_probs,
+                                                                                                                     concentrations,
+                                                                                                                     normalized_probs)
+        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(unnormalized_probs, concentrations,
+                                                                                 normalized_logprobs, tokens, mask)
 
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent[:self.args.nbest]):
                 ind = i * self.args.nbest + j
+
+                zeros_tensor = torch.zeros_like(mkl[ind])
+
                 hypo['token_uncertainties'] = {
                     'entropy_of_expected': entropy_of_expected[ind],
                     'expected_entropy': expected_entropy[ind],
                     'mutual_information': mutual_information[ind],
-                    'EPKL': epkl[ind]
+                    'EPKL': epkl[ind],
+                    'MKL': mkl[ind],
+                    'ep_entropy_of_expected': zeros_tensor,
+                    'ep_mutual_information': zeros_tensor,
+                    'ep_EPKL': zeros_tensor,
+                    'ep_MKL': zeros_tensor,
+                    'token_DU': zeros_tensor,
+                    'token_ep_TU': zeros_tensor,
+                    'token_pe_TU': zeros_tensor,
+                    'token_ep_MKL': zeros_tensor,
+                    'token_pe_MKL': zeros_tensor,
+
                 }
+
+                zero_tensor = zeros_tensor.sum()
+
                 hypo['sequence_uncertainties'] = {
-                    'score': scores[ind],
-                    'entropy_of_expected': entropy_of_expected[ind].mean(),
+                    'log-prob': log_probs[ind],
+                    'pe_entropy_of_expected': entropy_of_expected[ind].mean(),
                     'expected_entropy': expected_entropy[ind].mean(),
                     'mutual_information': mutual_information[ind].mean(),
-                    'EPKL': epkl[ind].mean(),
-                    'log-prob': log_probs[ind],
-                    'aep_du': scores[ind],
-                    'aep_tu': expected_scores[ind],
-                    'aep_npmi': expected_pmi[ind],
+                    'pe_EPKL': epkl[ind].mean(),
+                    'pe_MKL': mkl[ind].mean(),
+                    'pe_sTU': scores[ind],
+                    'pe_sMKL': scores_mkl[ind],
+                    'ep_sTU': zero_tensor,
+                    'sDU': zero_tensor,
+                    'ep_sMKL': zero_tensor,
+                    'ep_entropy_of_expected': zero_tensor,
+                    'ep_mutual_information': zero_tensor,
+                    'ep_EPKL': zero_tensor,
+                    'ep_MKL': zero_tensor
                 }
 
     @torch.no_grad()
