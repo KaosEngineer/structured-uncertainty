@@ -260,7 +260,7 @@ class DistillationTask(TranslationTask):
                     'log-prob': log_probs[ind],
                     'pe_entropy_of_expected': entropy_of_expected[ind].mean(),
                     'expected_entropy': expected_entropy[ind].mean(),
-                    'mutual_information': mutual_information[ind].mean(),
+                    'pe_mutual_information': mutual_information[ind].mean(),
                     'pe_EPKL': epkl[ind].mean(),
                     'pe_MKL': mkl[ind].mean(),
                     'pe_sTU': scores[ind],
