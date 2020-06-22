@@ -129,8 +129,8 @@ def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, l
     scores = -log_probs / mask.sum(dim=1)
     # scores >=0
 
-    token_scores_mkl = ((torch.digamma(concentrations) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds)).squeeze(2))
-                        * mask) + token_log_probs
+    token_scores_mkl = ((torch.digamma(concentrations) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds))).squeeze(
+        2) * mask) + token_log_probs
 
     scores_mkl = token_scores_mkl.sum(1) / mask.sum(1)
     return log_probs, scores, scores_mkl
