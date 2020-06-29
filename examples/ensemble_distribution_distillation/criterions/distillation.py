@@ -177,23 +177,32 @@ EPS = 1e-8
 class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
     def __init__(self, args, task):
         super().__init__(args, task)
-        self.task = task
         self.parametrization_func = prob_parametrization[task.parametrization]
         self.topk = args.topk_loss
+        self.separate_parametrization = args.separate_parametrization
+        if args.separate_parametrization:
+            assert args.arch.startswith('dirichlet')
 
     @staticmethod
     def add_args(parser):
         _DistillationCriterionBase.add_args(parser)
         parser.add_argument('--topk-loss', default=-1, type=int, metavar='D',
                             help='top-k most likely classes will be considered as separate classes, others will be merged')
+        parser.add_argument('--separate-parametrization', action='store_true')
 
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         temp = self.task.temp
 
-        logits = net_output[0]
+        logits, extra = net_output
 
-        alphas = temp * self.parametrization_func(logits).float()
-        teacher_probs = utils.softmax(ensemble_logits, dim=-1).float()
+        if self.separate_parametrization:
+            means = model.get_normalized_probs(net_output, log_probs=False)
+            precision = temp * extra['dirichlet_params']
+            alphas = means * precision
+        else:
+            alphas = temp * self.parametrization_func(logits).float()
+            teacher_probs = utils.softmax(ensemble_logits, dim=-1).float()
+            precision = torch.sum(alphas, dim=-1)
 
         if self.topk != -1:
             # sort average probabilities
@@ -214,7 +223,6 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
             alphas_not_topk = alphas.gather(2, lowest_probs_inds).sum(2, keepdim=True)
             alphas = torch.cat((alphas_topk, alphas_not_topk), dim=2)
 
-        precision = torch.sum(alphas, dim=-1)
         mean_teacher_probs = teacher_probs.mean(dim=2, keepdim=True)
 
         teacher_probs = (temp - 1) / (temp + 1) * mean_teacher_probs + 2 / (temp + 1) * teacher_probs
