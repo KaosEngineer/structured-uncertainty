@@ -197,7 +197,7 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
 
         if self.separate_parametrization:
             means = model.get_normalized_probs(net_output, log_probs=False)
-            precision = temp * extra['dirichlet_params']
+            precision = temp * self.parametrization_func(extra['dirichlet_params'])
             alphas = means * precision
         else:
             alphas = temp * self.parametrization_func(logits).float()
