@@ -201,8 +201,9 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
             alphas = means * precision
         else:
             alphas = temp * self.parametrization_func(logits).float()
-            teacher_probs = utils.softmax(ensemble_logits, dim=-1).float()
             precision = torch.sum(alphas, dim=-1)
+
+        teacher_probs = utils.softmax(ensemble_logits, dim=-1).float()
 
         if self.topk != -1:
             # sort average probabilities
