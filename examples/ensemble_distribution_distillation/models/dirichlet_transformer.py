@@ -42,6 +42,7 @@ class DirichletTransformerDecoder(TransformerDecoder):
             **unused
         )
         extra['dirichlet_params'] = self.dirichlet_projection(x)
+        return x, extra
 
 
 @register_model_architecture('dirichlet_transformer', 'dirichlet_transformer')
