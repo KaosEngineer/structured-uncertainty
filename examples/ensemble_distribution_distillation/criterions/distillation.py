@@ -168,7 +168,7 @@ class ForwardKLMeanCritertion(_DistillationCriterionBase):
 
         if reduce:
             return torch.sum(loss)
-        return loss, dict
+        return loss, dict()
 
 
 EPS = 1e-8
