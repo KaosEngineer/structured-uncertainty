@@ -5,6 +5,17 @@ from fairseq.models.transformer import TransformerDecoder, TransformerModel
 
 
 @register_model('dirichlet_transformer')
+class DirichletTransformerModel(TransformerModel):
+    @classmethod
+    def build_decoder(cls, args, tgt_dict, embed_tokens):
+        return DirichletTransformerDecoder(
+            args,
+            tgt_dict,
+            embed_tokens,
+            no_encoder_attn=getattr(args, 'no_cross_attention', False),
+        )
+
+
 class DirichletTransformerDecoder(TransformerDecoder):
     def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False):
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn)
@@ -31,17 +42,6 @@ class DirichletTransformerDecoder(TransformerDecoder):
             **unused
         )
         extra['dirichlet_params'] = self.dirichlet_projection(x)
-
-
-class DirichletTransformerModel(TransformerModel):
-    @classmethod
-    def build_decoder(cls, args, tgt_dict, embed_tokens):
-        return DirichletTransformerDecoder(
-            args,
-            tgt_dict,
-            embed_tokens,
-            no_encoder_attn=getattr(args, 'no_cross_attention', False),
-        )
 
 
 @register_model_architecture('dirichlet_transformer', 'dirichlet_transformer')
