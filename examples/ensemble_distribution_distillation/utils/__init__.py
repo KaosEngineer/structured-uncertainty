@@ -1,5 +1,7 @@
 import torch
 
+from examples.ensemble_distribution_distillation.models.dirichlet_transformer import DirichletTransformerModel
+
 
 def freeze_module_params(m):
     if m is not None:
@@ -20,3 +22,17 @@ prob_parametrization = {
     'softplus': torch.nn.functional.softplus,
     'exp_max_sub': exp_with_max_subtraction,
 }
+
+
+def get_dirichlet_parameters(model, net_output, parametrization_func):
+    logits, extra = net_output
+
+    if 'dirichlet_params' in extra:
+        means = model.get_normalized_probs(net_output, log_probs=False)
+        precision = parametrization_func(extra['dirichlet_params'])
+        alphas = means * precision
+        precision = precision.squeeze(2)
+    else:
+        alphas = parametrization_func(logits)
+        precision = torch.sum(alphas, dim=-1)
+    return alphas, precision

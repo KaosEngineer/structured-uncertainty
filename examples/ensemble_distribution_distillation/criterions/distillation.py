@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from examples.ensemble_distribution_distillation.utils import prob_parametrization
+from examples.ensemble_distribution_distillation.utils import prob_parametrization, get_dirichlet_parameters
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import label_smoothed_nll_loss
@@ -47,7 +47,7 @@ class _DistillationCriterionBase(FairseqCriterion):
         # batch x len x ensemble_size x n_tokens
         ensemble_logits = sample['ensemble_logits']
 
-        loss = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce)
+        loss, stats = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce)
 
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
         lprobs = lprobs
@@ -80,6 +80,7 @@ class _DistillationCriterionBase(FairseqCriterion):
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
             'xent_weight': xent_weight,
+            **stats
         }
         return total_loss, sample_size, logging_output
 
@@ -114,7 +115,7 @@ class MeanReverseKLCritertion(_DistillationCriterionBase):
 
         if reduce:
             return torch.sum(loss)
-        return loss
+        return loss, dict()
 
 
 @register_criterion('reverse_kl_mean_distillation')
@@ -131,7 +132,7 @@ class ReverseKLMeanCritertion(_DistillationCriterionBase):
 
         if reduce:
             return torch.sum(loss)
-        return loss
+        return loss, dict()
 
 
 @register_criterion('mean_forward_kl_distillation')
@@ -150,7 +151,7 @@ class MeanForwardKLCritertion(_DistillationCriterionBase):
 
         if reduce:
             return torch.sum(loss)
-        return loss
+        return loss, dict()
 
 
 @register_criterion('forward_kl_mean_distillation')
@@ -167,7 +168,7 @@ class ForwardKLMeanCritertion(_DistillationCriterionBase):
 
         if reduce:
             return torch.sum(loss)
-        return loss
+        return loss, dict
 
 
 EPS = 1e-8
@@ -179,30 +180,20 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         super().__init__(args, task)
         self.parametrization_func = prob_parametrization[task.parametrization]
         self.topk = args.topk_loss
-        self.separate_parametrization = args.separate_parametrization
-        if args.separate_parametrization:
-            assert args.arch.startswith('dirichlet')
 
     @staticmethod
     def add_args(parser):
         _DistillationCriterionBase.add_args(parser)
         parser.add_argument('--topk-loss', default=-1, type=int, metavar='D',
                             help='top-k most likely classes will be considered as separate classes, others will be merged')
-        parser.add_argument('--separate-parametrization', action='store_true')
 
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         temp = self.task.temp
 
-        logits, extra = net_output
+        alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func)
 
-        if self.separate_parametrization:
-            means = model.get_normalized_probs(net_output, log_probs=False)
-            precision = temp * self.parametrization_func(extra['dirichlet_params'])
-            alphas = means * precision
-            precision = precision.squeeze(2)
-        else:
-            alphas = temp * self.parametrization_func(logits).float()
-            precision = torch.sum(alphas, dim=-1)
+        alphas = alphas * temp
+        precision = precision * temp
 
         teacher_probs = utils.softmax(ensemble_logits, dim=-1).float()
 
@@ -242,3 +233,96 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         if reduce:
             return torch.sum(cost)
         return cost
+
+
+@register_criterion('dirichlet_mediator_distillation')
+class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCritertion):
+    def __init__(self, args, task):
+        super().__init__(args, task)
+        self.target_concentration = args.target_concentration
+
+    @staticmethod
+    def add_args(parser):
+        SequenceDistributionDistillationCritertion.add_args(parser)
+        parser.add_argument('--target-concentration', choices=('mkl', 'epkl'), required=True)
+
+    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+        temp = self.task.temp
+
+        alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func)
+
+        num_classes = ensemble_logits.size(3)
+
+        ensemble_probs = utils.softmax(ensemble_logits, dim=-1)
+        ensemble_mean_probs = ensemble_probs.mean(dim=2)
+        ensemble_logprobs = torch.log(ensemble_probs)
+
+        if self.target_concentration == 'mkl':
+            mkl = torch.nn.functional.kl_div(ensemble_logprobs, ensemble_mean_probs.unsqueeze(2).expand_as(ensemble_probs),
+                                             reduction='none').sum(3, keepdim=True).mean(2)
+            ensemble_precision = (num_classes - 1) / (2 * mkl)
+        elif self.target_concentration == 'epkl':
+            epkl = 1
+            ensemble_precision = (num_classes - 1) / epkl
+        else:
+            raise ValueError
+
+        precision_sum = (precision * temp).sum().item()
+        ensemble_precision_sum = ensemble_precision.sum().item()
+        stats = {'precision': precision_sum, 'ensemble_precision': ensemble_precision_sum}
+
+        alphas = alphas / temp
+        precision = precision / temp
+        ensemble_precision = ensemble_precision / temp
+
+        ensemble_params = ensemble_mean_probs * ensemble_precision
+
+        if self.topk != -1:
+            # sort average probabilities
+            sorted_avg_probs, argsort_inds = ensemble_mean_probs.sort(dim=-1, descending=True)
+            # get indices of k most likely classes
+            highest_probs_inds = argsort_inds[..., :self.topk]
+            lowest_probs_inds = argsort_inds[..., self.topk:]
+
+            # take parameters for classes in top-k, sum for other classes
+            params_in_topk = ensemble_params.gather(2, highest_probs_inds)
+            params_not_in_topk = ensemble_params.gather(2, lowest_probs_inds).sum(2, keepdim=True)
+            ensemble_params = torch.cat((params_in_topk, params_not_in_topk), dim=2)
+
+            # take alphas for classes in top-k, sum for other classes
+            alphas_topk = alphas.gather(2, highest_probs_inds)
+            alphas_not_topk = alphas.gather(2, lowest_probs_inds).sum(2, keepdim=True)
+            alphas = torch.cat((alphas_topk, alphas_not_topk), dim=2)
+
+        target_independent_term = (
+                torch.lgamma(ensemble_precision.squeeze(2)) - torch.sum(torch.lgamma(ensemble_params), dim=-1) +
+                torch.sum(torch.lgamma(alphas), dim=-1) - torch.lgamma(precision)
+        )
+
+        target_dependent_term = torch.sum(
+            (ensemble_params - alphas) *
+            (torch.digamma(ensemble_params) - torch.digamma(ensemble_precision)),
+            dim=-1)
+
+        cost = target_dependent_term + target_independent_term
+        # mask loss for padding tokens
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
+        cost.masked_fill_(pad_mask, 0.)
+
+        if reduce:
+            return torch.sum(cost), stats
+        return cost, stats
+
+    @staticmethod
+    def aggregate_logging_outputs(logging_outputs):
+        base_outputs = _DistillationCriterionBase.aggregate_logging_outputs(logging_outputs)
+        sample_size = base_outputs['sample_size']
+
+        precision = sum(log.get('precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
+        ensemble_precision = sum(log.get('ensemble_precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
+
+        return {
+            **base_outputs,
+            'precision': precision,
+            'ensemble_precision': ensemble_precision
+        }

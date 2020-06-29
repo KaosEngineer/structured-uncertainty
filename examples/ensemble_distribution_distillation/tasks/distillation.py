@@ -211,23 +211,24 @@ class DistillationTask(TranslationTask):
         sample['net_input']['src_lengths'] = torch.repeat_interleave(sample['net_input']['src_lengths'], self.args.nbest, dim=0)
         sample['net_input']['prev_output_tokens'] = prev_output
 
-        logits, attn = model(**sample['net_input'])
+        net_output = model(**sample['net_input'])
+        logits, extra = net_output
 
         sample['net_input']['src_tokens'] = src_tokens
         sample['net_input']['src_lengths'] = src_lengths
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
-        unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
-        concentrations = unnormalized_probs.sum(dim=-1, keepdim=True)
+        dirichlet_params = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
+        concentrations = dirichlet_params.sum(dim=-1, keepdim=True)
 
-        normalized_probs = model.get_normalized_probs((logits, attn), log_probs=False)
+        normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
         mask = (tokens != self.tgt_dict.pad()).type(logits.dtype)
-        entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(unnormalized_probs,
+        entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
                                                                                                                      concentrations,
                                                                                                                      normalized_probs)
-        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(unnormalized_probs, concentrations,
+        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
                                                                                  normalized_logprobs, tokens, mask)
 
         for i, sent in enumerate(hypos):
