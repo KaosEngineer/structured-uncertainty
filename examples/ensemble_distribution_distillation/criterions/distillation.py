@@ -199,6 +199,7 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
             means = model.get_normalized_probs(net_output, log_probs=False)
             precision = temp * self.parametrization_func(extra['dirichlet_params'])
             alphas = means * precision
+            precision = precision.squeeze(2)
         else:
             alphas = temp * self.parametrization_func(logits).float()
             precision = torch.sum(alphas, dim=-1)
