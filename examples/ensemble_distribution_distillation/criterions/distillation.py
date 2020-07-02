@@ -240,11 +240,23 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
     def __init__(self, args, task):
         super().__init__(args, task)
         self.target_concentration = args.target_concentration
+        self.clip_precision = args.clip_precision
 
     @staticmethod
     def add_args(parser):
         SequenceDistributionDistillationCritertion.add_args(parser)
         parser.add_argument('--target-concentration', choices=('mkl', 'epkl'), required=True)
+        parser.add_argument('--clip-precision', action='store_true')
+
+    @staticmethod
+    def compute_epkl(ensemble_probs, ensemble_logprobs):
+        mprobs = torch.mean(ensemble_probs, dim=2)
+        mlog_probs = torch.mean(ensemble_logprobs, dim=2)
+        eoe_upper_bound = -torch.sum(mprobs * mlog_probs, dim=-1)
+
+        exe = -torch.mean(torch.sum(ensemble_probs * ensemble_logprobs, dim=-1), dim=2)
+        epkl = eoe_upper_bound - exe
+        return epkl
 
     def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
         temp = self.task.temp
@@ -262,7 +274,7 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
                                              reduction='none').sum(3, keepdim=True).mean(2)
             ensemble_precision = (num_classes - 1) / (2 * mkl)
         elif self.target_concentration == 'epkl':
-            epkl = 1
+            epkl = self.compute_epkl(ensemble_probs, ensemble_logprobs)
             ensemble_precision = (num_classes - 1) / epkl
         else:
             raise ValueError
@@ -274,6 +286,11 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
         alphas = alphas / temp
         precision = precision / temp
         ensemble_precision = ensemble_precision / temp
+
+        if self.clip_precision:
+            torch.clamp(ensemble_precision, min=num_classes, out=ensemble_precision)
+            precision = torch.clamp(precision, min=num_classes)
+            alphas = alphas / alphas.sum(dim=-1, keepdim=True) * precision
 
         ensemble_params = ensemble_mean_probs * ensemble_precision
 
