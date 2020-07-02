@@ -3,7 +3,7 @@ from types import MethodType
 
 import torch
 
-from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params
+from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params, get_dirichlet_parameters
 from fairseq import options, checkpoint_utils
 from fairseq.data import data_utils
 from fairseq.data.data_utils import collate_tokens
@@ -212,19 +212,17 @@ class DistillationTask(TranslationTask):
         sample['net_input']['prev_output_tokens'] = prev_output
 
         net_output = model(**sample['net_input'])
-        logits, extra = net_output
 
         sample['net_input']['src_tokens'] = src_tokens
         sample['net_input']['src_lengths'] = src_lengths
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
-        dirichlet_params = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
-        concentrations = dirichlet_params.sum(dim=-1, keepdim=True)
+        dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func)
 
         normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
-        mask = (tokens != self.tgt_dict.pad()).type(logits.dtype)
+        mask = (tokens != self.tgt_dict.pad()).type(dirichlet_params.dtype)
         entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
                                                                                                                      concentrations,
                                                                                                                      normalized_probs)
