@@ -234,6 +234,18 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
             return torch.sum(cost)
         return cost
 
+    @staticmethod
+    def aggregate_logging_outputs(logging_outputs):
+        base_outputs = _DistillationCriterionBase.aggregate_logging_outputs(logging_outputs)
+        sample_size = base_outputs['sample_size']
+
+        precision = sum(log.get('precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
+
+        return {
+            **base_outputs,
+            'precision': precision,
+        }
+
 
 @register_criterion('dirichlet_mediator_distillation')
 class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCritertion):
@@ -332,14 +344,12 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
-        base_outputs = _DistillationCriterionBase.aggregate_logging_outputs(logging_outputs)
+        base_outputs = SequenceDistributionDistillationCritertion.aggregate_logging_outputs(logging_outputs)
         sample_size = base_outputs['sample_size']
 
-        precision = sum(log.get('precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
         ensemble_precision = sum(log.get('ensemble_precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
 
         return {
             **base_outputs,
-            'precision': precision,
             'ensemble_precision': ensemble_precision
         }
