@@ -3,7 +3,7 @@ from types import MethodType
 
 import torch
 
-from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params
+from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params, get_dirichlet_parameters
 from examples.speech_recognition.data.replabels import replabel_symbol
 from examples.speech_recognition.tasks.speech_recognition import SpeechRecognitionTask
 from fairseq import checkpoint_utils
@@ -205,41 +205,63 @@ class ASRDistillationTask(SpeechRecognitionTask):
 
         new_order = torch.arange(bsz, device=device, dtype=torch.long).view(-1, 1).repeat(1, beam_size).view(-1)
         encoder_out = model.encoder.reorder_encoder_out(encoder_out, new_order)
-        logits, attn = model.decoder(prev_output, encoder_out=encoder_out)
-        logits = logits[:, :-1, :]  # remove logits after last EOS
+        net_output = model.decoder(prev_output, encoder_out=encoder_out)
+        net_output[0] = net_output[0][:, :-1, :]  # remove logits after last EOS
 
-        unnormalized_probs = prob_parametrization[self.parametrization](logits)  # dirichlet parameters
-        concentrations = unnormalized_probs.sum(dim=-1, keepdim=True)
+        dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func)
 
-        normalized_probs = model.get_normalized_probs((logits, attn), log_probs=False)
+        normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
-        mask = (tokens != self.tgt_dict.pad()).type(logits.dtype)
-        entropy_of_expected, expected_entropy, mutual_information, epkl = compute_token_dirichlet_uncertainties(unnormalized_probs,
-                                                                                                                concentrations,
-                                                                                                                normalized_probs)
-        log_probs, scores, expected_scores, expected_pmi = compute_sequence_dirichlet_uncertainties(unnormalized_probs, concentrations,
-                                                                                                    normalized_logprobs, tokens, mask)
+        mask = (tokens != self.tgt_dict.pad()).type(dirichlet_params.dtype)
+        entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
+                                                                                                                     concentrations,
+                                                                                                                     normalized_probs)
+        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
+                                                                                 normalized_logprobs, tokens, mask)
 
         for i, sent in enumerate(hypos):
-            for j, hypo in enumerate(sent):
-                ind = i * beam_size + j
+            for j, hypo in enumerate(sent[:self.args.nbest]):
+                ind = i * self.args.nbest + j
+
+                zeros_tensor = torch.zeros_like(mkl[ind])
+
                 hypo['token_uncertainties'] = {
                     'entropy_of_expected': entropy_of_expected[ind],
                     'expected_entropy': expected_entropy[ind],
                     'mutual_information': mutual_information[ind],
-                    'EPKL': epkl[ind]
+                    'EPKL': epkl[ind],
+                    'MKL': mkl[ind],
+                    'ep_entropy_of_expected': zeros_tensor,
+                    'ep_mutual_information': zeros_tensor,
+                    'ep_EPKL': zeros_tensor,
+                    'ep_MKL': zeros_tensor,
+                    'token_DU': zeros_tensor,
+                    'token_ep_TU': zeros_tensor,
+                    'token_pe_TU': zeros_tensor,
+                    'token_ep_MKL': zeros_tensor,
+                    'token_pe_MKL': zeros_tensor,
+
                 }
+
+                zero_tensor = zeros_tensor.sum()
+
                 hypo['sequence_uncertainties'] = {
-                    'score': scores[ind],
-                    'entropy_of_expected': entropy_of_expected[ind].mean(),
-                    'expected_entropy': expected_entropy[ind].mean(),
-                    'mutual_information': mutual_information[ind].mean(),
-                    'EPKL': epkl[ind].mean(),
                     'log-prob': log_probs[ind],
-                    'aep_du': scores[ind],
-                    'aep_tu': expected_scores[ind],
-                    'aep_npmi': expected_pmi[ind],
+                    'pe_entropy_of_expected': entropy_of_expected[ind].mean(),
+                    'expected_entropy': expected_entropy[ind].mean(),
+                    'pe_mutual_information': mutual_information[ind].mean(),
+                    'pe_EPKL': epkl[ind].mean(),
+                    'pe_MKL': mkl[ind].mean(),
+                    'pe_sTU': scores[ind],
+                    'pe_sMKL': scores_mkl[ind],
+                    'ep_sTU': zero_tensor,
+                    'sDU': zero_tensor,
+                    'ep_sMKL': zero_tensor,
+                    'ep_entropy_of_expected': zero_tensor,
+                    'ep_mutual_information': zero_tensor,
+                    'ep_EPKL': zero_tensor,
+                    'ep_MKL': zero_tensor
                 }
 
     @torch.no_grad()
