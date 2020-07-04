@@ -22,7 +22,7 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
         parser.add_argument('--init-from-model', type=int, help='Model index in ensemble_paths to use for initialization')
         parser.add_argument('--freeze-weights-until', type=int, help='Freeze encoder/decoder weights until a given step')
-        parser.add_argument('--init-temp', type=float, default=10)
+        parser.add_argument('--init-temp', type=float, default=1)
         parser.add_argument('--final-temp', type=float, default=1)
         parser.add_argument('--init-xent-weight', type=float, default=0)
         parser.add_argument('--final-xent-weight', type=float, default=0)
