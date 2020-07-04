@@ -24,6 +24,42 @@ def compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index, reduc
     return loss
 
 
+@torch.no_grad()
+def compute_epkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs):
+    mlog_probs = torch.mean(ensemble_logprobs, dim=2)
+    eoe_upper_bound = -torch.sum(ensemble_mean_probs * mlog_probs, dim=-1)
+
+    exe = -torch.mean(torch.sum(ensemble_probs * ensemble_logprobs, dim=-1), dim=2)
+    epkl = eoe_upper_bound - exe
+    return epkl
+
+
+@torch.no_grad()
+def compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs):
+    mkl = torch.nn.functional.kl_div(ensemble_logprobs, ensemble_mean_probs.unsqueeze(2).expand_as(ensemble_probs),
+                                     reduction='none').sum(3, keepdim=True).mean(2)
+    return mkl
+
+
+@torch.no_grad()
+def compute_ensemble_stats(ensemble_logits):
+    ensemble_probs = utils.softmax(ensemble_logits, dim=-1)
+    ensemble_mean_probs = ensemble_probs.mean(dim=2)
+    ensemble_logprobs = utils.log_softmax(ensemble_logits, dim=-1)
+
+    epkl = compute_epkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
+    mkl = compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
+
+    stats = {
+        'probs': ensemble_probs,
+        'mean_probs': ensemble_mean_probs,
+        'logprobs': ensemble_logprobs,
+        'epkl': epkl,
+        'mkl': mkl,
+    }
+    return stats
+
+
 class _DistillationCriterionBase(FairseqCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
@@ -47,7 +83,9 @@ class _DistillationCriterionBase(FairseqCriterion):
         # batch x len x ensemble_size x n_tokens
         ensemble_logits = sample['ensemble_logits']
 
-        loss, stats = self.compute_loss(model, net_output, ensemble_logits, sample, reduce=reduce)
+        ensemble_stats = compute_ensemble_stats(ensemble_logits)
+
+        loss, stats = self.compute_loss(model, net_output, ensemble_stats, sample, reduce=reduce)
 
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
         lprobs = lprobs
@@ -80,7 +118,9 @@ class _DistillationCriterionBase(FairseqCriterion):
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
             'xent_weight': xent_weight,
-            **stats
+            'ensemble_mkl': utils.item(ensemble_stats['mkl'].sum()),
+            'ensemble_epkl': utils.item(ensemble_stats['epkl'].sum()),
+            **{key: utils.item(value) for key, value in stats.items()}
         }
         return total_loss, sample_size, logging_output
 
@@ -96,15 +136,17 @@ class _DistillationCriterionBase(FairseqCriterion):
             'ntokens': ntokens,
             'nsentences': nsentences,
             'sample_size': sample_size,
-            'xent_weight': sum(log.get('xent_weight', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
+            'xent_weight': sum(log.get('xent_weight', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'ensemble_mkl': sum(log.get('ensemble_mkl', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'ensemble_epkl': sum(log.get('ensemble_epkl', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
         }
 
 
 @register_criterion('mean_reverse_kl_distillation')
 class MeanReverseKLCritertion(_DistillationCriterionBase):
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+    def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         probs = model.get_normalized_probs(net_output)
-        teacher_log_probs = utils.log_softmax(ensemble_logits, dim=-1)
+        teacher_log_probs = ensemble_stats['logprobs']
 
         probs = probs.unsqueeze(2).expand_as(teacher_log_probs)
         loss = torch.nn.functional.kl_div(teacher_log_probs, probs, reduction='none').mean(2).sum(-1)
@@ -114,15 +156,15 @@ class MeanReverseKLCritertion(_DistillationCriterionBase):
         loss.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(loss)
+            return torch.sum(loss), dict()
         return loss, dict()
 
 
 @register_criterion('reverse_kl_mean_distillation')
 class ReverseKLMeanCritertion(_DistillationCriterionBase):
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+    def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         probs = model.get_normalized_probs(net_output)
-        avg_teacher_log_probs = torch.log(utils.softmax(ensemble_logits, dim=-1).mean(2))
+        avg_teacher_log_probs = torch.log(ensemble_stats['mean_probs'])
 
         loss = torch.nn.functional.kl_div(avg_teacher_log_probs, probs, reduction='none').sum(-1)
 
@@ -131,15 +173,15 @@ class ReverseKLMeanCritertion(_DistillationCriterionBase):
         loss.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(loss)
+            return torch.sum(loss), dict()
         return loss, dict()
 
 
 @register_criterion('mean_forward_kl_distillation')
 class MeanForwardKLCritertion(_DistillationCriterionBase):
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+    def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         log_probs = model.get_normalized_probs(net_output, log_probs=True)
-        teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+        teacher_probs = ensemble_stats['probs']
 
         # average loss over all teacher distributions
         log_probs = log_probs.unsqueeze(2).expand_as(teacher_probs)
@@ -150,15 +192,15 @@ class MeanForwardKLCritertion(_DistillationCriterionBase):
         loss.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(loss)
+            return torch.sum(loss), dict()
         return loss, dict()
 
 
 @register_criterion('forward_kl_mean_distillation')
 class ForwardKLMeanCritertion(_DistillationCriterionBase):
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+    def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         log_probs = model.get_normalized_probs(net_output, log_probs=True)
-        avg_teacher_probs = utils.softmax(ensemble_logits, dim=-1).mean(2)
+        avg_teacher_probs = ensemble_stats['mean_probs']
 
         loss = torch.nn.functional.kl_div(log_probs, avg_teacher_probs, reduction='none').sum(-1)
 
@@ -167,7 +209,7 @@ class ForwardKLMeanCritertion(_DistillationCriterionBase):
         loss.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(loss)
+            return torch.sum(loss), dict()
         return loss, dict()
 
 
@@ -187,19 +229,22 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         parser.add_argument('--topk-loss', default=-1, type=int, metavar='D',
                             help='top-k most likely classes will be considered as separate classes, others will be merged')
 
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+    def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         temp = self.task.temp
 
         alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func)
 
+        precision_sum = precision.sum()
+
         alphas = alphas * temp
         precision = precision * temp
 
-        teacher_probs = utils.softmax(ensemble_logits, dim=-1).float()
+        teacher_probs = ensemble_stats['probs']
+        mean_teacher_probs = ensemble_stats['mean_probs']
 
         if self.topk != -1:
             # sort average probabilities
-            sorted_avg_probs, argsort_inds = teacher_probs.mean(2).sort(dim=-1, descending=True)
+            sorted_avg_probs, argsort_inds = mean_teacher_probs.sort(dim=-1, descending=True)
             # get indices of k most likely classes
             highest_probs_inds = argsort_inds[..., :self.topk]
             lowest_probs_inds = argsort_inds[..., self.topk:]
@@ -231,19 +276,17 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(cost)
-        return cost
+            return torch.sum(cost), {'precision': precision_sum}
+        return cost, {'precision': precision_sum}
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
         base_outputs = _DistillationCriterionBase.aggregate_logging_outputs(logging_outputs)
         sample_size = base_outputs['sample_size']
 
-        precision = sum(log.get('precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
-
         return {
             **base_outputs,
-            'precision': precision,
+            'precision': sum(log.get('precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
         }
 
 
@@ -260,39 +303,25 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
         parser.add_argument('--target-concentration', choices=('mkl', 'epkl'), required=True)
         parser.add_argument('--clip-precision', action='store_true')
 
-    @staticmethod
-    def compute_epkl(ensemble_probs, ensemble_logprobs):
-        mprobs = torch.mean(ensemble_probs, dim=2)
-        mlog_probs = torch.mean(ensemble_logprobs, dim=2)
-        eoe_upper_bound = -torch.sum(mprobs * mlog_probs, dim=-1)
-
-        exe = -torch.mean(torch.sum(ensemble_probs * ensemble_logprobs, dim=-1), dim=2)
-        epkl = eoe_upper_bound - exe
-        return epkl
-
-    def compute_loss(self, model, net_output, ensemble_logits, sample, reduce):
+    def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         temp = self.task.temp
 
         alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func)
 
-        num_classes = ensemble_logits.size(3)
-
-        ensemble_probs = utils.softmax(ensemble_logits, dim=-1)
-        ensemble_mean_probs = ensemble_probs.mean(dim=2)
-        ensemble_logprobs = torch.log(ensemble_probs)
+        num_classes = alphas.size(-1)
 
         if self.target_concentration == 'mkl':
-            mkl = torch.nn.functional.kl_div(ensemble_logprobs, ensemble_mean_probs.unsqueeze(2).expand_as(ensemble_probs),
-                                             reduction='none').sum(3, keepdim=True).mean(2)
-            ensemble_precision = (num_classes - 1) / (2 * mkl)
+            mkl = ensemble_stats['mkl']
+            ensemble_precision = (num_classes - 1) / (2 * mkl + 1e-8)
         elif self.target_concentration == 'epkl':
-            epkl = self.compute_epkl(ensemble_probs, ensemble_logprobs)
-            ensemble_precision = (num_classes - 1) / epkl
+            epkl = ensemble_stats['epkl'].unsqueeze(2)
+            ensemble_precision = (num_classes - 1) / (epkl + 1e-8)
         else:
             raise ValueError
 
-        precision_sum = (precision * temp).sum().item()
-        ensemble_precision_sum = ensemble_precision.sum().item()
+        precision_sum = precision.sum()
+
+        ensemble_precision_sum = ensemble_precision.sum()
         stats = {'precision': precision_sum, 'ensemble_precision': ensemble_precision_sum}
 
         alphas = alphas / temp
@@ -304,11 +333,11 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
             precision = torch.clamp(precision, min=num_classes)
             alphas = alphas / alphas.sum(dim=-1, keepdim=True) * precision
 
-        ensemble_params = ensemble_mean_probs * ensemble_precision
+        ensemble_params = ensemble_stats['mean_probs'] * ensemble_precision
 
         if self.topk != -1:
             # sort average probabilities
-            sorted_avg_probs, argsort_inds = ensemble_mean_probs.sort(dim=-1, descending=True)
+            sorted_avg_probs, argsort_inds = ensemble_stats['mean_probs'].sort(dim=-1, descending=True)
             # get indices of k most likely classes
             highest_probs_inds = argsort_inds[..., :self.topk]
             lowest_probs_inds = argsort_inds[..., self.topk:]
@@ -347,9 +376,7 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
         base_outputs = SequenceDistributionDistillationCritertion.aggregate_logging_outputs(logging_outputs)
         sample_size = base_outputs['sample_size']
 
-        ensemble_precision = sum(log.get('ensemble_precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
-
         return {
             **base_outputs,
-            'ensemble_precision': ensemble_precision
+            'ensemble_precision': sum(log.get('ensemble_precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
         }
