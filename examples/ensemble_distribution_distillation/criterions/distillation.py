@@ -88,7 +88,6 @@ class _DistillationCriterionBase(FairseqCriterion):
         loss, stats = self.compute_loss(model, net_output, ensemble_stats, sample, reduce=reduce)
 
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        lprobs = lprobs
         target = model.get_targets(sample, net_output)
 
         if self.xent_type == 'xent':
@@ -222,22 +221,27 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         super().__init__(args, task)
         self.parametrization_func = prob_parametrization[task.parametrization]
         self.topk = args.topk_loss
+        self.model_offset = args.model_offset
 
     @staticmethod
     def add_args(parser):
         _DistillationCriterionBase.add_args(parser)
         parser.add_argument('--topk-loss', default=-1, type=int, metavar='D',
                             help='top-k most likely classes will be considered as separate classes, others will be merged')
+        parser.add_argument('--model-offset', default=0, type=float)
 
     def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         temp = self.task.temp
 
-        alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func)
+        alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func, add_to_alphas=self.model_offset)
 
         precision_sum = precision.sum()
+        precision_min = precision.min()
+        precision_max = precision.max()
+        stats = {'precision_mean': precision_sum, 'precision_min': precision_min, 'precision_max': precision_max}
 
-        alphas = alphas * temp
-        precision = precision * temp
+        alphas = alphas / temp
+        precision = precision / temp
 
         teacher_probs = ensemble_stats['probs']
         mean_teacher_probs = ensemble_stats['mean_probs']
@@ -276,17 +280,21 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
-            return torch.sum(cost), {'precision': precision_sum}
-        return cost, {'precision': precision_sum}
+            return torch.sum(cost), stats
+        return cost, stats
 
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
         base_outputs = _DistillationCriterionBase.aggregate_logging_outputs(logging_outputs)
         sample_size = base_outputs['sample_size']
-
+        number_of_outputs = sum(1 if log.get('precision') is not None else 0 for log in logging_outputs)
         return {
             **base_outputs,
             'precision': sum(log.get('precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'precision_min': sum(
+                log.get('precision_min', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
+            'precision_max': sum(
+                log.get('precision_max', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
         }
 
 
@@ -296,44 +304,54 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
         super().__init__(args, task)
         self.target_concentration = args.target_concentration
         self.clip_precision = args.clip_precision
+        self.target_offset = args.target_offset
 
     @staticmethod
     def add_args(parser):
         SequenceDistributionDistillationCritertion.add_args(parser)
         parser.add_argument('--target-concentration', choices=('mkl', 'epkl'), required=True)
         parser.add_argument('--clip-precision', action='store_true')
+        parser.add_argument('--target-offset', default=0, type=float)
 
     def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         temp = self.task.temp
 
-        alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func)
+        alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func, self.model_offset)
 
         num_classes = alphas.size(-1)
 
         if self.target_concentration == 'mkl':
             mkl = ensemble_stats['mkl']
-            ensemble_precision = (num_classes - 1) / (2 * mkl + 1e-8)
+            ensemble_precision = (num_classes - 1) / (2 * mkl + EPS)
         elif self.target_concentration == 'epkl':
             epkl = ensemble_stats['epkl'].unsqueeze(2)
-            ensemble_precision = (num_classes - 1) / (epkl + 1e-8)
+            ensemble_precision = (num_classes - 1) / (epkl + EPS)
         else:
             raise ValueError
-
-        precision_sum = precision.sum()
-
-        ensemble_precision_sum = ensemble_precision.sum()
-        stats = {'precision': precision_sum, 'ensemble_precision': ensemble_precision_sum}
-
-        alphas = alphas / temp
-        precision = precision / temp
-        ensemble_precision = ensemble_precision / temp
 
         if self.clip_precision:
             torch.clamp(ensemble_precision, min=num_classes, out=ensemble_precision)
             precision = torch.clamp(precision, min=num_classes)
             alphas = alphas / alphas.sum(dim=-1, keepdim=True) * precision
 
-        ensemble_params = ensemble_stats['mean_probs'] * ensemble_precision
+        ensemble_params = ensemble_stats['mean_probs'] * ensemble_precision + self.target_offset
+        ensemble_precision += self.target_offset * num_classes
+
+        precision_sum = precision.sum()
+        precision_min = precision.min()
+        precision_max = precision.max()
+        ensemble_precision_sum = ensemble_precision.sum()
+        ensemble_precision_min = ensemble_precision.min()
+        ensemble_precision_max = ensemble_precision.max()
+
+        stats = {'precision': precision_sum, 'precision_min': precision_min, 'precision_max': precision_max,
+                 'ensemble_precision': ensemble_precision_sum, 'ensemble_precision_min': ensemble_precision_min,
+                 'ensemble_precision_max': ensemble_precision_max}
+
+        alphas = alphas / temp
+        precision = precision / temp
+        ensemble_precision /= temp
+        ensemble_params /= temp
 
         if self.topk != -1:
             # sort average probabilities
@@ -375,8 +393,12 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
     def aggregate_logging_outputs(logging_outputs):
         base_outputs = SequenceDistributionDistillationCritertion.aggregate_logging_outputs(logging_outputs)
         sample_size = base_outputs['sample_size']
-
+        number_of_outputs = sum(1 if log.get('ensemble_precision') is not None else 0 for log in logging_outputs)
         return {
             **base_outputs,
-            'ensemble_precision': sum(log.get('ensemble_precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.
+            'ensemble_precision': sum(log.get('ensemble_precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'ensemble_precision_min': sum(
+                log.get('ensemble_precision_min', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
+            'ensemble_precision_max': sum(
+                log.get('ensemble_precision_max', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
         }
