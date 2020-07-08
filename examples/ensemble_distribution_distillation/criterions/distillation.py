@@ -8,8 +8,11 @@ from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import label_smoothed_nll_loss
 
 
-def compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index, reduce):
-    teacher_probs = utils.softmax(ensemble_logits, dim=-1)
+def compute_mean_forward_kl(model, sample, ensemble_stats, net_output, ignore_index, reduce):
+    lprobs = model.get_normalized_probs(net_output, log_probs=True)
+    target = model.get_targets(sample, net_output)
+
+    teacher_probs = ensemble_stats['logprobs']
 
     # average loss over all teacher distributions
     lprobs = lprobs.unsqueeze(2).expand_as(teacher_probs)
@@ -42,7 +45,8 @@ def compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs):
 
 
 @torch.no_grad()
-def compute_ensemble_stats(ensemble_logits):
+def compute_ensemble_stats(sample):
+    ensemble_logits = sample['ensemble_logits']
     ensemble_probs = utils.softmax(ensemble_logits, dim=-1)
     ensemble_mean_probs = ensemble_probs.mean(dim=2)
     ensemble_logprobs = utils.log_softmax(ensemble_logits, dim=-1)
@@ -58,6 +62,16 @@ def compute_ensemble_stats(ensemble_logits):
         'mkl': mkl,
     }
     return stats
+
+
+def compute_xent_nll(model, sample, net_output, reduce, label_smoothing, ignore_index):
+    lprobs = model.get_normalized_probs(net_output, log_probs=True)
+    target = model.get_targets(sample, net_output)
+    xent_loss, nll_loss = label_smoothed_nll_loss(
+        lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), label_smoothing, ignore_index=ignore_index,
+        reduce=reduce,
+    )
+    return xent_loss, nll_loss
 
 
 class _DistillationCriterionBase(FairseqCriterion):
@@ -80,10 +94,7 @@ class _DistillationCriterionBase(FairseqCriterion):
         # batch x len x n_tokens
         net_output = model(**sample['net_input'])
 
-        # batch x len x ensemble_size x n_tokens
-        ensemble_logits = sample['ensemble_logits']
-
-        ensemble_stats = compute_ensemble_stats(ensemble_logits)
+        ensemble_stats = compute_ensemble_stats(sample)
 
         loss, stats = self.compute_loss(model, net_output, ensemble_stats, sample, reduce=reduce)
 
@@ -91,25 +102,20 @@ class _DistillationCriterionBase(FairseqCriterion):
         target = model.get_targets(sample, net_output)
 
         if self.xent_type == 'xent':
-            xent_loss, nll_loss = label_smoothed_nll_loss(
-                lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), self.label_smoothing, ignore_index=self.padding_idx, reduce=reduce,
-            )
+            xent_loss, nll_loss = compute_xent_nll(model, sample, net_output, reduce, self.label_smoothing, self.padding_idx)
             total_loss = loss + xent_weight * xent_loss
 
         elif self.xent_type == 'forward_kl':
             with torch.no_grad():
-                xent_loss, nll_loss = label_smoothed_nll_loss(
-                    lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), self.label_smoothing, ignore_index=self.padding_idx,
-                    reduce=reduce,
-                )
+                xent_loss, nll_loss = compute_xent_nll(model, sample, net_output, reduce, self.label_smoothing, self.padding_idx)
 
-            forward_kl = compute_mean_forward_kl(lprobs, target, ensemble_logits, ignore_index=self.padding_idx, reduce=reduce)
+            forward_kl = compute_mean_forward_kl(model, sample, net_output, ignore_index=self.padding_idx, reduce=reduce)
             total_loss = loss + xent_weight * forward_kl
-
         else:
             raise KeyError
 
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
+
         logging_output = {
             'loss': (utils.item(total_loss.data) if reduce else total_loss.data),
             'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
@@ -228,7 +234,6 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         _DistillationCriterionBase.add_args(parser)
         parser.add_argument('--topk-loss', default=-1, type=int, metavar='D',
                             help='top-k most likely classes will be considered as separate classes, others will be merged')
-        parser.add_argument('--model-offset', default=0, type=float)
 
     def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         temp = self.task.temp

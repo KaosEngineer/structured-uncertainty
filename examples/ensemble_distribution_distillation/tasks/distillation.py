@@ -27,6 +27,7 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--init-xent-weight', type=float, default=0)
         parser.add_argument('--final-xent-weight', type=float, default=0)
         parser.add_argument('--parametrization', choices=prob_parametrization.keys(), default='exp')
+        parser.add_argument('--model-offset', default=0, type=float)
 
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
@@ -329,7 +330,9 @@ class DistillationTask(TranslationTask):
             else:
                 model.decoder.embed_out.requires_grad = True
 
-        if args.parametrization != 'exp':
+        if args.parametrization != 'exp' or args.model_offset != 0:
+            print('Patching get_normalized_probs')
+
             # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers
             def patched_get_normalized_probs(self, net_output, log_probs, sample=None):
                 """Get normalized probabilities (or log probs) from a net's output."""
@@ -338,7 +341,7 @@ class DistillationTask(TranslationTask):
                     raise NotImplementedError()
 
                 logits = net_output[0]
-                unnormalized_probs = prob_parametrization[args.parametrization](logits)
+                unnormalized_probs = prob_parametrization[args.parametrization](logits) + args.model_offset
                 probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
                 if log_probs:
                     return probs.log()
