@@ -1,7 +1,5 @@
 import torch
 
-from examples.ensemble_distribution_distillation.models.dirichlet_transformer import DirichletTransformerModel
-
 
 def freeze_module_params(m):
     if m is not None:
@@ -34,5 +32,5 @@ def get_dirichlet_parameters(model, net_output, parametrization_func, add_to_alp
         precision = precision.squeeze(2) + add_to_alphas * alphas.size(-1)
     else:
         alphas = parametrization_func(logits) + add_to_alphas
-        precision = torch.sum(alphas, dim=-1) + add_to_alphas * alphas.size(-1)
+        precision = torch.sum(alphas, dim=-1)
     return alphas, precision
