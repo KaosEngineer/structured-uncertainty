@@ -98,9 +98,6 @@ class _DistillationCriterionBase(FairseqCriterion):
 
         loss, stats = self.compute_loss(model, net_output, ensemble_stats, sample, reduce=reduce)
 
-        lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        target = model.get_targets(sample, net_output)
-
         if self.xent_type == 'xent':
             xent_loss, nll_loss = compute_xent_nll(model, sample, net_output, reduce, self.label_smoothing, self.padding_idx)
             total_loss = loss + xent_weight * xent_loss
