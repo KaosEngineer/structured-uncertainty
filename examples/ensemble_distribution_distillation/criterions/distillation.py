@@ -289,10 +289,10 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
     def aggregate_logging_outputs(logging_outputs):
         base_outputs = _DistillationCriterionBase.aggregate_logging_outputs(logging_outputs)
         sample_size = base_outputs['sample_size']
-        number_of_outputs = sum(1 if log.get('precision') is not None else 0 for log in logging_outputs)
+        number_of_outputs = sum(1 if log.get('precision_mean') is not None else 0 for log in logging_outputs)
         return {
             **base_outputs,
-            'precision': sum(log.get('precision', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
+            'precision': sum(log.get('precision_mean', 0) for log in logging_outputs) / sample_size if sample_size > 0 else 0.,
             'precision_min': sum(
                 log.get('precision_min', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
             'precision_max': sum(

@@ -47,6 +47,7 @@ class DistillationTask(TranslationTask):
         self.freeze_weights_until = args.freeze_weights_until
         self.unfreeze_model = self.freeze_weights_until is not None and self.freeze_weights_until > 0
         self.parametrization = args.parametrization
+        self.parametrization_func = prob_parametrization[self.parametrization]
         self.criterion = args.criterion
         self.compute_uncertainty = getattr(args, 'compute_uncertainty', False)
 
@@ -219,6 +220,7 @@ class DistillationTask(TranslationTask):
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
         dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func)
+        concentrations = concentrations.unsqueeze(2)
 
         normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
         normalized_logprobs = normalized_probs.log()
