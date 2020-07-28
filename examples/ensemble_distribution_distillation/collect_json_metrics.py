@@ -29,13 +29,13 @@ def main(decode_path, reference_path, output_path):
 
     ood_metrics = dict()
 
-    for testset in ['test5', 'test6', 'test7', 'test8', 'test9', 'test10', 'test11', 'test12', 'test13', 'test14']:
+    for testset in ['test5', 'test6', 'test9', 'test12', 'test14']:
         with open(decode_path / testset / 'results_ood_mc.txt') as f:
-            decode_mc_seq = parse_uncertainty_metrics(f, report_nbest=(1, 5))
+            decode_mc_seq = parse_uncertainty_metrics(f, report_nbest=(5,))
         with open(decode_path / testset / 'results_ood_bs.txt') as f:
-            decode_bs_seq = parse_uncertainty_metrics(f, report_nbest=(1, 5))
+            decode_bs_seq = parse_uncertainty_metrics(f, report_nbest=(5,))
         with open(reference_path / testset / 'results_ood_mc.txt') as f:
-            ref_bs_seq = parse_uncertainty_metrics(f, report_nbest=(1, 5))
+            ref_bs_seq = parse_uncertainty_metrics(f, report_nbest=(5,))
 
         ood_metrics.update({
             **{f'ood_{testset}_decode_mc_{key}': value for key, value in decode_mc_seq.items()},
@@ -45,7 +45,7 @@ def main(decode_path, reference_path, output_path):
 
     seq_error_metrics = dict()
 
-    for testset in ['test']:
+    for testset in ['test', 'test5']:
         with open(decode_path / testset / 'results_seq_mc.txt') as f:
             decode_mc_seq = parse_uncertainty_metrics(f, report_nbest=(1,))
 

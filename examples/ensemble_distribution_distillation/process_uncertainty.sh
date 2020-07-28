@@ -5,7 +5,7 @@ CODE_DIR="${SOURCE_CODE_PATH:-${HOME}}"
 
 (
   cd decode/
-  for i in test test5 test6 test7 test8 test9 test10 test11 test12 test13 test14; do
+  for i in test test5 test6 test9 test12 test14; do
     rm -rf ${i}
     mkdir ${i}
     grep "^SU-*" results-${i}.txt >${i}/tmp
@@ -28,7 +28,7 @@ CODE_DIR="${SOURCE_CODE_PATH:-${HOME}}"
     awk '{print $16}' ${i}/tmp >${i}/mkl.txt
   done
 
-  for i in test5 test6 test7 test8 test9 test10 test11 test12 test13 test14; do
+  for i in test5 test6 test9 test12 test14; do
     for n in $(seq 1 5); do
       python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest ${n} --beam_width 5
       python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest ${n} --beam_width 5 --beam_search
@@ -44,7 +44,7 @@ CODE_DIR="${SOURCE_CODE_PATH:-${HOME}}"
 )
 (
   cd reference/
-  for i in test test5 test6 test7 test8 test9 test10 test11 test12 test13 test14; do
+  for i in test test5 test6 test9 test12 test14; do
     rm -rf ${i}
     mkdir ${i}
     grep "^SU-*" results-${i}.txt >${i}/tmp
@@ -67,7 +67,7 @@ CODE_DIR="${SOURCE_CODE_PATH:-${HOME}}"
     awk '{print $16}' ${i}/tmp >${i}/mkl.txt
   done
 
-  for i in test5 test6 test7 test8 test9 test10 test11 test12 test13 test14; do
+  for i in test5 test6 test9 test12 test14; do
     python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest 1 --beam_width 1
   done
 )

@@ -229,6 +229,12 @@ class DistillationTask(TranslationTask):
         entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
                                                                                                                      concentrations,
                                                                                                                      normalized_probs)
+        entropy_of_expected *= mask
+        expected_entropy *= mask
+        mutual_information *= mask
+        epkl *= mask
+        mkl *= mask
+
         log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
                                                                                  normalized_logprobs, tokens, mask)
 
