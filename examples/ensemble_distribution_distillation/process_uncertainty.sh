@@ -2,9 +2,10 @@
 set -euxo pipefail
 
 CODE_DIR="${SOURCE_CODE_PATH:-${HOME}}"
+OUTPUT_DIR="${TMP_OUTPUT_PATH:-${HOME}}"
 
 (
-  cd decode/
+  cd $OUTPUT_DIR/decode
   for i in test test5 test6 test9 test12 test14; do
     rm -rf ${i}
     mkdir ${i}
@@ -43,7 +44,7 @@ CODE_DIR="${SOURCE_CODE_PATH:-${HOME}}"
   done
 )
 (
-  cd reference/
+  cd $OUTPUT_DIR/reference
   for i in test test5 test6 test9 test12 test14; do
     rm -rf ${i}
     mkdir ${i}
