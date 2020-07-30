@@ -31,15 +31,15 @@ OUTPUT_DIR="${TMP_OUTPUT_PATH:-${HOME}}"
 
   for i in test5 test6 test9 test12 test14; do
     for n in $(seq 1 5); do
-      python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest ${n} --beam_width 5
-      python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest ${n} --beam_width 5 --beam_search
+      python3 $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest ${n} --beam_width 5
+      python3 $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest ${n} --beam_width 5 --beam_search
     done
   done
 
   for n in $(seq 1 5); do
     for i in test test5; do
-      python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/seq_error_detection.py ./${i} --beam_width 5 --nbest ${n}
-      python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/seq_error_detection.py ./${i} --beam_width 5 --nbest ${n} --beam_search
+      python3 $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/seq_error_detection.py ./${i} --beam_width 5 --nbest ${n}
+      python3 $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/seq_error_detection.py ./${i} --beam_width 5 --nbest ${n} --beam_search
     done
   done
 )
@@ -69,6 +69,6 @@ OUTPUT_DIR="${TMP_OUTPUT_PATH:-${HOME}}"
   done
 
   for i in test5 test6 test9 test12 test14; do
-    python $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest 1 --beam_width 1
+    python3 $CODE_DIR/fairseq-py/examples/structured_uncertainty/assessment/ood_detection.py test ${i} ${i} --nbest 1 --beam_width 1
   done
 )
