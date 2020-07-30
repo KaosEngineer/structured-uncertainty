@@ -197,7 +197,7 @@ class DistillationTask(TranslationTask):
 
     def add_uncertainties(self, sample, hypos, models):
         if len(models) != 1:
-            raise NotImplementedError('Uncertainty estimation for ensemble of distilled models is not implemented')
+            raise NotImplementedError('Uncertainty estimation for ensembles of distilled models is not implemented')
         model = models[0]
 
         tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
@@ -225,15 +225,16 @@ class DistillationTask(TranslationTask):
         normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
-        mask = (tokens != self.tgt_dict.pad()).type(dirichlet_params.dtype)
+        mask = tokens.eq(self.tgt_dict.pad())
         entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
                                                                                                                      concentrations,
                                                                                                                      normalized_probs)
-        entropy_of_expected *= mask
-        expected_entropy *= mask
-        mutual_information *= mask
-        epkl *= mask
-        mkl *= mask
+        if mask.any():
+            entropy_of_expected.masked_fill(mask, 0)
+            expected_entropy.masked_fill(mask, 0)
+            mutual_information.masked_fill(mask, 0)
+            epkl.masked_fill(mask, 0)
+            mkl.masked_fill(mask, 0)
 
         log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
                                                                                  normalized_logprobs, tokens, mask)

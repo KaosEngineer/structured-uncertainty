@@ -96,13 +96,17 @@ def token_aep_uncertainty(pos_enscores):
     return expr_pos_scores, eoe_ub, expr_pos_mkl, prex_pos_scores, prex_pos_mkl
 
 
-EPS = 1e-8
+@torch.jit.script
+def eps():
+    return 1e-8
 
 
-def entropy(probs, dim=-1):
-    return -(probs * (probs + EPS).log()).sum(dim=dim)
+@torch.jit.script
+def entropy(probs, dim: int = -1):
+    return -(probs * (probs + eps()).log()).sum(dim=dim)
 
 
+@torch.jit.script
 def compute_token_dirichlet_uncertainties(dirichlet_params, concentrations, expected_dirichlet):
     batch_size, num_tokens, vocab_size = dirichlet_params.size()
 
@@ -117,22 +121,30 @@ def compute_token_dirichlet_uncertainties(dirichlet_params, concentrations, expe
     assert (epkl >= 0).all()
     mkl = (-expected_dirichlet * (torch.digamma(dirichlet_params) - torch.digamma(concentrations))).sum(dim=-1) - entropy_of_expected
     assert (mkl >= 0).all()
-    assert torch.allclose(epkl, mutual_information + mkl, rtol=0, atol=1)
+    RTOL: float = 0.0
+    ATOL: float = 1.0
+    assert torch.allclose(epkl, mutual_information + mkl, rtol=RTOL, atol=ATOL)
 
     return entropy_of_expected, expected_entropy, mutual_information, epkl, mkl
 
 
+@torch.jit.script
 def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, log_expected_probs, predict_inds, mask):
     unsqueezed_inds = predict_inds.unsqueeze(-1)
 
-    token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2) * mask
+    token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2)
+    if mask.any():
+        token_log_probs.masked_fill(mask, 0)
 
     log_probs = token_log_probs.sum(dim=1)
     scores = -log_probs / mask.sum(dim=1)
     # scores >=0
 
-    token_scores_mkl = ((torch.digamma(concentrations) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds))).squeeze(
-        2) * mask) + token_log_probs
+    token_scores_mkl = (torch.digamma(concentrations) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds))
+                        ).squeeze(2) + token_log_probs
+
+    if mask.any():
+        token_scores_mkl.masked_fill(mask, 0)
 
     scores_mkl = token_scores_mkl.sum(1) / mask.sum(1)
     return log_probs, scores, scores_mkl
