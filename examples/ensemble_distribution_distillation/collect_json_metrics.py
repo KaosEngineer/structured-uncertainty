@@ -60,7 +60,7 @@ def main(decode_path, reference_path, output_path):
         **seq_error_metrics
     }
     with open(output_path, 'w+') as output_f:
-        json.dump(result_dict, output_f, indent=2)
+        json.dump(result_dict, output_f, indent=2, sort_keys=True)
         output_f.write('\n')
 
 
