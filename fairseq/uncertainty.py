@@ -129,7 +129,7 @@ def compute_token_dirichlet_uncertainties(dirichlet_params, concentrations, expe
 
 
 @torch.jit.script
-def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, log_expected_probs, predict_inds, mask):
+def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, log_expected_probs, predict_inds, mask, num_tokens):
     unsqueezed_inds = predict_inds.unsqueeze(-1)
 
     token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2)
@@ -137,7 +137,7 @@ def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, l
         token_log_probs.masked_fill(mask, 0)
 
     log_probs = token_log_probs.sum(dim=1)
-    scores = -log_probs / mask.sum(dim=1)
+    scores = -log_probs / num_tokens
     # scores >=0
 
     token_scores_mkl = (torch.digamma(concentrations) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds))
@@ -146,5 +146,5 @@ def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, l
     if mask.any():
         token_scores_mkl.masked_fill(mask, 0)
 
-    scores_mkl = token_scores_mkl.sum(1) / mask.sum(1)
+    scores_mkl = token_scores_mkl.sum(1) / num_tokens
     return log_probs, scores, scores_mkl

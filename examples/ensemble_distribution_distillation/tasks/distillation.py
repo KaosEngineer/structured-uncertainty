@@ -226,6 +226,7 @@ class DistillationTask(TranslationTask):
         normalized_logprobs = normalized_probs.log()
 
         mask = tokens.eq(self.tgt_dict.pad())
+        num_of_tokens = torch.sum(~mask, dim=1)
         entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
                                                                                                                      concentrations,
                                                                                                                      normalized_probs)
@@ -237,7 +238,7 @@ class DistillationTask(TranslationTask):
             mkl.masked_fill(mask, 0)
 
         log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
-                                                                                 normalized_logprobs, tokens, mask)
+                                                                                 normalized_logprobs, tokens, mask, num_of_tokens)
 
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent[:self.args.nbest]):
@@ -267,11 +268,11 @@ class DistillationTask(TranslationTask):
 
                 hypo['sequence_uncertainties'] = {
                     'log-prob': log_probs[ind],
-                    'pe_entropy_of_expected': entropy_of_expected[ind].mean(),
-                    'expected_entropy': expected_entropy[ind].mean(),
-                    'pe_mutual_information': mutual_information[ind].mean(),
-                    'pe_EPKL': epkl[ind].mean(),
-                    'pe_MKL': mkl[ind].mean(),
+                    'pe_entropy_of_expected': entropy_of_expected[ind].sum() / num_of_tokens[ind],
+                    'expected_entropy': expected_entropy[ind].sum() / num_of_tokens[ind],
+                    'pe_mutual_information': mutual_information[ind].sum() / num_of_tokens[ind],
+                    'pe_EPKL': epkl[ind].sum() / num_of_tokens[ind],
+                    'pe_MKL': mkl[ind].sum() / num_of_tokens[ind],
                     'pe_sTU': scores[ind],
                     'pe_sMKL': scores_mkl[ind],
                     'ep_sTU': zero_tensor,
