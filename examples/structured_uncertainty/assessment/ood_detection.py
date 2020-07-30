@@ -1,8 +1,10 @@
 #! /usr/bin/env python
 
-import os, sys
+import os
 
 import matplotlib
+
+from examples.structured_uncertainty.assessment.utils import load_uncertainties
 
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
@@ -12,7 +14,6 @@ from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import auc
 import seaborn as sns
 import argparse
-from scipy.special import softmax
 
 sns.set()
 sns.set(font_scale=1.25)
@@ -31,55 +32,6 @@ parser.add_argument('--nbest', type=int, default=5,
                     help='Path of directory where to save results.')
 parser.add_argument('--beam_search', action='store_true',
                     help='Path of directory where to save results.')
-
-
-def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
-    eoe = np.loadtxt(os.path.join(path, 'entropy_expected.txt'), dtype=np.float64)
-    exe = np.loadtxt(os.path.join(path, 'expected_entropy.txt'), dtype=np.float64)
-    mi = np.loadtxt(os.path.join(path, 'mutual_information.txt'), dtype=np.float64)
-    epkl = np.loadtxt(os.path.join(path, 'epkl.txt'), dtype=np.float64)
-    mkl = np.loadtxt(os.path.join(path, 'mkl.txt'), dtype=np.float64)
-    score = np.loadtxt(os.path.join(path, 'score.txt'), dtype=np.float64)
-    aep_tu = np.loadtxt(os.path.join(path, 'aep_tu.txt'), dtype=np.float64)
-    aep_du = np.loadtxt(os.path.join(path, 'aep_du.txt'), dtype=np.float64)
-    npmi = np.loadtxt(os.path.join(path, 'npmi.txt'), dtype=np.float64)
-    lprobs = np.loadtxt(os.path.join(path, 'log_probs.txt'), dtype=np.float64)
-
-    ep_eoe = np.loadtxt(os.path.join(path, 'ep_entropy_expected.txt'), dtype=np.float64)
-    ep_mi = np.loadtxt(os.path.join(path, 'ep_mutual_information.txt'), dtype=np.float64)
-    ep_epkl = np.loadtxt(os.path.join(path, 'ep_epkl.txt'), dtype=np.float64)
-    ep_mkl = np.loadtxt(os.path.join(path, 'ep_mkl.txt'), dtype=np.float64)
-
-    unc_dict = {'Total Uncertainty-PE': eoe,
-                'Total Uncertainty-EP': ep_eoe,
-                'SCR-PE': score,
-                'SCR-EP': aep_tu,
-                'Data Uncertainty': exe,
-                'Mutual Information-PE': mi,
-                'Mutual Information-EP': ep_mi,
-                'EPKL-PE': epkl,
-                'EPKL-EP': ep_epkl,
-                'MKL': mkl,
-                'ep_MKL': ep_mkl,
-                'sMKL-PE': aep_du - score,
-                'sMKL-EP': npmi}
-    if os.path.exists(os.path.join(path, 'xbleu.txt')):
-        xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
-        unc_dict['XBLEU'] = xbleu
-    if os.path.exists(os.path.join(path, 'xwer.txt')):
-        xwer = np.loadtxt(os.path.join(path, 'xwer.txt'), dtype=np.float32)
-        unc_dict['XWER'] = xwer
-
-
-    weights = softmax(lprobs.reshape([-1, beam_width])[:, :n_best], axis=1)
-    assert np.all((np.isfinite(weights)))
-    for key in unc_dict.keys():
-        uncertainties = unc_dict[key]
-        if beam_search:
-            unc_dict[key] = np.sum(weights * np.reshape(uncertainties, [-1, beam_width])[:, :n_best], axis=1)
-        else:
-            unc_dict[key] = np.mean(np.reshape(uncertainties, [-1, beam_width])[:, :n_best], axis=1)
-    return unc_dict
 
 
 def eval_ood_detect(in_uncertainties, out_uncertainties, save_path):
