@@ -28,6 +28,7 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--final-xent-weight', type=float, default=0)
         parser.add_argument('--parametrization', choices=prob_parametrization.keys(), default='exp')
         parser.add_argument('--model-offset', default=0, type=float)
+        parser.add_argument('--fp16-ensemble', action='store_true')
 
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
@@ -49,6 +50,7 @@ class DistillationTask(TranslationTask):
         self.parametrization = args.parametrization
         self.parametrization_func = prob_parametrization[self.parametrization]
         self.criterion = args.criterion
+        self.fp16_ensemble = args.fp16_ensemble
         self.compute_uncertainty = getattr(args, 'compute_uncertainty', False)
 
     @classmethod
@@ -88,7 +90,7 @@ class DistillationTask(TranslationTask):
             # Optimize ensemble for generation (includes setting .eval())
             for model in models:
                 model.make_generation_fast_(need_attn=False)
-                if args.fp16:
+                if args.fp16_ensemble:
                     model.half()
                 if use_cuda:
                     model.cuda()
@@ -288,12 +290,12 @@ class DistillationTask(TranslationTask):
     def compute_ensemble_logits(self, sample):
         batch_size, num_tokens = sample['target'].size()
         ens_size, vocab_size = len(self.ensemble), len(self.tgt_dict)
+        dtype = torch.half if self.args.fp16 else torch.float
         sample['ensemble_logits'] = torch.empty((batch_size, num_tokens, ens_size, vocab_size),
-                                                dtype=torch.half if self.args.fp16 else torch.float,
-                                                device='cpu' if self.args.cpu else 'cuda')
+                                                dtype=dtype, device='cpu' if self.args.cpu else 'cuda')
 
         for i, model in enumerate(self.ensemble):
-            sample['ensemble_logits'][:, :, i] = model(**sample['net_input'])[0]
+            sample['ensemble_logits'][:, :, i] = model(**sample['net_input'])[0].type(dtype)
         return sample
 
     def update_step(self, num_updates):
@@ -351,7 +353,7 @@ class DistillationTask(TranslationTask):
                     raise NotImplementedError()
 
                 logits = net_output[0]
-                unnormalized_probs = prob_parametrization[args.parametrization](logits) + args.model_offset
+                unnormalized_probs = prob_parametrization[args.parametrization](logits.float()) + args.model_offset
                 probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
                 if log_probs:
                     return probs.log()
