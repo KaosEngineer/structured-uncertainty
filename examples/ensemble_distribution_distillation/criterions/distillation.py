@@ -106,7 +106,7 @@ class _DistillationCriterionBase(FairseqCriterion):
             with torch.no_grad():
                 xent_loss, nll_loss = compute_xent_nll(model, sample, net_output, reduce, self.label_smoothing, self.padding_idx)
 
-            forward_kl = compute_mean_forward_kl(model, sample, net_output, ignore_index=self.padding_idx, reduce=reduce)
+            forward_kl = compute_mean_forward_kl(model, sample, ensemble_stats, net_output, ignore_index=self.padding_idx, reduce=reduce)
             total_loss = loss + xent_weight * forward_kl
         else:
             raise KeyError

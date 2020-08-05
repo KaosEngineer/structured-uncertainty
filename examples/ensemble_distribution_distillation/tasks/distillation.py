@@ -355,6 +355,8 @@ class DistillationTask(TranslationTask):
                 logits = net_output[0]
                 unnormalized_probs = prob_parametrization[args.parametrization](logits.float()) + args.model_offset
                 probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
+                # add small constants for numerical stability
+                probs = probs * (1 - 1e-8) + 1e-8 * (1 / probs.size(-1))
                 if log_probs:
                     return probs.log()
                 else:
