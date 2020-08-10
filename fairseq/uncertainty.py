@@ -70,8 +70,15 @@ def seq_uncertainties(eos_enscores, prex_eos_scores, step):
     step = torch.tensor(step, dtype=torch.float32)
 
     eoe_ub = -torch.mean(eos_enscores, dim=0)
-
     expr_total_unc = -(torch.logsumexp(eos_enscores, dim=0) - torch.log(esz))
+
+    expr_var = torch.var(torch.exp(eos_enscores/(step + 1))+1e-10, dim=0, unbiased=False)
+    expr_logvar = torch.var(eos_enscores / (step + 1)+1e-10, dim=0, unbiased=False)
+    expr_varcombo = -(1.0 - expr_var / (1e-10+torch.exp(-expr_total_unc / (step + 1))))
+    expr_logcombo = -(1 - expr_logvar/(1e-10+torch.mean(eos_enscores / (step + 1), dim=0)))
+
+
+
 
     eoe_ub /= (step + 1)
     prex_total_unc /= (step + 1)
@@ -80,7 +87,7 @@ def seq_uncertainties(eos_enscores, prex_eos_scores, step):
     expr_mkl = eoe_ub - expr_total_unc
     prex_mkl = eoe_ub - prex_total_unc
 
-    return expr_total_unc, eoe_ub, expr_mkl, prex_total_unc, prex_mkl
+    return expr_total_unc, eoe_ub, expr_mkl, prex_total_unc, prex_mkl, expr_var, expr_varcombo, expr_logvar, expr_logcombo
 
 
 def token_aep_uncertainty(pos_enscores):
