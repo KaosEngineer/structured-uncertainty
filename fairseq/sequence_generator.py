@@ -962,10 +962,10 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                                    'ep_sMKL': ep_mkl[i],
                                                    'pe_sMKL': pe_mkl[i],
                                                    'log-prob': score*(step + 1),
-                                                   'var': expr_var,
-                                                   'combo' : expr_varcombo,
-                                                   'logvar': expr_logvar,
-                                                   'logcombo': expr_logcombo
+                                                   'var': expr_var[i],
+                                                   'combo' : expr_varcombo[i],
+                                                   'logvar': expr_logvar[i],
+                                                   'logcombo': expr_logcombo[i]
                                                    }
                     }
 

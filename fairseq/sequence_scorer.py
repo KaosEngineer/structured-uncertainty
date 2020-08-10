@@ -286,10 +286,10 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                     'ep_sMKL': ep_sMKL.squeeze(),
                     'pe_sMKL': pe_sMKL.squeeze(),
                     'log-prob': score_i * tgt_len,
-                    'var': expr_var,
-                    'combo': expr_varcombo,
-                    'logvar': expr_logvar,
-                    'logcombo': expr_logcombo
+                    'var': expr_var.squeeze(),
+                    'combo': expr_varcombo.squeeze(),
+                    'logvar': expr_logvar.squeeze(),
+                    'logcombo': expr_logcombo.squeeze()
                 },
             }])
         return hypos
