@@ -342,7 +342,7 @@ class DistillationTask(TranslationTask):
             else:
                 model.decoder.embed_out.requires_grad = True
 
-        if (args.parametrization != 'exp' or args.model_offset != 0) and not 'dirichlet' in args.model:
+        if (args.parametrization != 'exp' or args.model_offset != 0) and not 'dirichlet' in args.arch:
             print('Patching get_normalized_probs')
 
             # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers
