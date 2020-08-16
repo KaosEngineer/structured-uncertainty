@@ -327,14 +327,14 @@ class DistillationTask(TranslationTask):
         model = models.build_model(args, self)
         if args.init_from_model is not None:
             if self.ensemble:
-                state_dict = self.ensemble[args.init_from_model].state_dict()
+                state_dict = self.ensemble[self.init_from_model].state_dict()
                 if not model.decoder.share_input_output_embed:
                     state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
                 model.load_state_dict(state_dict, strict=False)
             else:
                 print('Warning: ensemble_paths was empty and init_from_model is not None. Parameters were not overwritten')
 
-        if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
+        if self.freeze_weights_until is not None and self.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
             freeze_module_params(model.decoder)
             if model.decoder.share_input_output_embed:
@@ -342,8 +342,11 @@ class DistillationTask(TranslationTask):
             else:
                 model.decoder.embed_out.requires_grad = True
 
-        if (args.parametrization != 'exp' or args.model_offset != 0) and not 'dirichlet' in args.arch:
+        if (self.parametrization != 'exp' or args.model_offset != 0) and not 'dirichlet' in args.arch:
             print('Patching get_normalized_probs')
+
+            parametrization_func = self.parametrization_func
+            model_offset = args.model_offset
 
             # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers
             def patched_get_normalized_probs(self, net_output, log_probs, sample=None):
@@ -353,7 +356,7 @@ class DistillationTask(TranslationTask):
                     raise NotImplementedError()
 
                 logits = net_output[0]
-                unnormalized_probs = prob_parametrization[args.parametrization](logits.float()) + args.model_offset
+                unnormalized_probs = parametrization_func(logits.float()) + model_offset
                 probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
                 # add small constants for numerical stability
                 probs = probs * (1 - 1e-8) + 1e-8 * (1 / probs.size(-1))

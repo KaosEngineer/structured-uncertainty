@@ -45,14 +45,33 @@ def compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs):
 
 
 @torch.no_grad()
-def compute_ensemble_stats(sample):
+def compute_ensemble_stats(sample, precision_from_topk):
     ensemble_logits = sample['ensemble_logits']
     ensemble_probs = utils.softmax(ensemble_logits, dim=-1)
     ensemble_mean_probs = ensemble_probs.mean(dim=2)
     ensemble_logprobs = utils.log_softmax(ensemble_logits, dim=-1)
 
-    epkl = compute_epkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
-    mkl = compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
+    if precision_from_topk != -1:
+        sorted_avg_probs, argsort_inds = ensemble_mean_probs.sort(dim=-1, descending=True)
+        # get indices of k most likely classes
+        highest_probs_inds = argsort_inds[..., :precision_from_topk]
+        lowest_probs_inds = argsort_inds[..., precision_from_topk:]
+
+        sizes = (-1, -1, ensemble_probs.size(2), -1)
+
+        # take probabilities for classes in top-k, sum for other classes
+        probs_in_topk = ensemble_probs.gather(3, highest_probs_inds.unsqueeze(2).expand(*sizes))
+        probs_not_in_topk = ensemble_probs.gather(3, lowest_probs_inds.unsqueeze(2).expand(*sizes)).sum(3, keepdim=True)
+
+        ensemble_probs_aggregated = torch.cat((probs_in_topk, probs_not_in_topk), dim=3)
+        ensemble_logprobs_aggregated = ensemble_probs_aggregated.log()
+        ensemble_mean_probs_aggregated = ensemble_probs_aggregated.mean(dim=2)
+
+        epkl = compute_epkl(ensemble_probs_aggregated, ensemble_mean_probs_aggregated, ensemble_logprobs_aggregated)
+        mkl = compute_mkl(ensemble_probs_aggregated, ensemble_mean_probs_aggregated, ensemble_logprobs_aggregated)
+    else:
+        epkl = compute_epkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
+        mkl = compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
 
     stats = {
         'probs': ensemble_probs,
@@ -80,6 +99,7 @@ class _DistillationCriterionBase(FairseqCriterion):
         self.label_smoothing = args.label_smoothing
         self.task = task
         self.xent_type = args.xent_type
+        self.precision_from_topk = args.precision_from_topk
 
     @staticmethod
     def add_args(parser):
@@ -87,6 +107,7 @@ class _DistillationCriterionBase(FairseqCriterion):
         parser.add_argument('--label-smoothing', default=0., type=float, metavar='D',
                             help='epsilon for label smoothing, 0 means no label smoothing')
         parser.add_argument('--xent-type', choices=('xent', 'forward_kl'), default='xent')
+        parser.add_argument('--precision-from-topk', type=int, default=-1)
 
     def forward(self, model, sample, reduce=True):
         xent_weight = self.task.xent_weight
@@ -94,7 +115,7 @@ class _DistillationCriterionBase(FairseqCriterion):
         # batch x len x n_tokens
         net_output = model(**sample['net_input'])
 
-        ensemble_stats = compute_ensemble_stats(sample)
+        ensemble_stats = compute_ensemble_stats(sample, self.precision_from_topk)
 
         loss, stats = self.compute_loss(model, net_output, ensemble_stats, sample, reduce=reduce)
 
