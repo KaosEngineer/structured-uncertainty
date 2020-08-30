@@ -28,6 +28,8 @@ class ASRDistillationTask(SpeechRecognitionTask):
         parser.add_argument('--init-xent-weight', type=float, default=0)
         parser.add_argument('--final-xent-weight', type=float, default=0)
         parser.add_argument('--parametrization', choices=prob_parametrization.keys(), default='exp')
+        parser.add_argument('--model-offset', default=0, type=float)
+        parser.add_argument('--fp16-ensemble', action='store_true')
 
     def __init__(self, args, tgt_dict, models):
         super().__init__(args, tgt_dict)
@@ -47,7 +49,9 @@ class ASRDistillationTask(SpeechRecognitionTask):
         self.freeze_weights_until = args.freeze_weights_until
         self.unfreeze_model = self.freeze_weights_until is not None and self.freeze_weights_until > 0
         self.parametrization = args.parametrization
+        self.parametrization_func = prob_parametrization[self.parametrization]
         self.criterion = args.criterion
+        self.fp16_ensemble = args.fp16_ensemble
         self.compute_uncertainty = getattr(args, 'compute_uncertainty', False)
 
     @classmethod
@@ -82,7 +86,7 @@ class ASRDistillationTask(SpeechRecognitionTask):
             # Optimize ensemble for generation (includes setting .eval())
             for model in models:
                 model.make_generation_fast_(need_attn=False)
-                if args.fp16:
+                if args.fp16_ensemble:
                     model.half()
                 if use_cuda:
                     model.cuda()
@@ -191,34 +195,48 @@ class ASRDistillationTask(SpeechRecognitionTask):
 
     def add_uncertainties(self, sample, hypos, models):
         if len(models) != 1:
-            raise NotImplementedError('Uncertainty estimation for ensemble of distilled models is not implemented')
+            raise NotImplementedError('Uncertainty estimation for ensembles of distilled models is not implemented')
         model = models[0]
-        encoder_out = model.encoder(**sample['net_input'])
 
-        bsz = sample['nsentences']
-        beam_size = len(hypos[0])
-        device = sample['net_input']['src_tokens'].device
-
-        tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent],
+        tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
                                 eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad())
-        prev_output = torch.cat([tokens.new_full((bsz * beam_size, 1), self.tgt_dict.eos()), tokens], dim=1)
+        prev_output = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
+                                     eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad(), move_eos_to_beginning=True)
 
-        new_order = torch.arange(bsz, device=device, dtype=torch.long).view(-1, 1).repeat(1, beam_size).view(-1)
-        encoder_out = model.encoder.reorder_encoder_out(encoder_out, new_order)
-        net_output = model.decoder(prev_output, encoder_out=encoder_out)
-        net_output[0] = net_output[0][:, :-1, :]  # remove logits after last EOS
+        src_tokens = sample['net_input']['src_tokens']
+        src_lengths = sample['net_input']['src_lengths']
+        prev_tokens = sample['net_input']['prev_output_tokens']
+
+        sample['net_input']['src_tokens'] = torch.repeat_interleave(sample['net_input']['src_tokens'], self.args.nbest, dim=0)
+        sample['net_input']['src_lengths'] = torch.repeat_interleave(sample['net_input']['src_lengths'], self.args.nbest, dim=0)
+        sample['net_input']['prev_output_tokens'] = prev_output
+
+        net_output = model(**sample['net_input'])
+
+        sample['net_input']['src_tokens'] = src_tokens
+        sample['net_input']['src_lengths'] = src_lengths
+        sample['net_input']['prev_output_tokens'] = prev_tokens
 
         dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func)
+        concentrations = concentrations.unsqueeze(2)
 
         normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
-        mask = (tokens != self.tgt_dict.pad()).type(dirichlet_params.dtype)
+        mask = tokens.eq(self.tgt_dict.pad())
+        num_of_tokens = torch.sum(~mask, dim=1)
         entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
                                                                                                                      concentrations,
                                                                                                                      normalized_probs)
+        if mask.any():
+            entropy_of_expected.masked_fill(mask, 0)
+            expected_entropy.masked_fill(mask, 0)
+            mutual_information.masked_fill(mask, 0)
+            epkl.masked_fill(mask, 0)
+            mkl.masked_fill(mask, 0)
+
         log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
-                                                                                 normalized_logprobs, tokens, mask)
+                                                                                 normalized_logprobs, tokens, mask, num_of_tokens)
 
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent[:self.args.nbest]):
@@ -248,11 +266,11 @@ class ASRDistillationTask(SpeechRecognitionTask):
 
                 hypo['sequence_uncertainties'] = {
                     'log-prob': log_probs[ind],
-                    'pe_entropy_of_expected': entropy_of_expected[ind].mean(),
-                    'expected_entropy': expected_entropy[ind].mean(),
-                    'pe_mutual_information': mutual_information[ind].mean(),
-                    'pe_EPKL': epkl[ind].mean(),
-                    'pe_MKL': mkl[ind].mean(),
+                    'pe_entropy_of_expected': entropy_of_expected[ind].sum() / num_of_tokens[ind],
+                    'expected_entropy': expected_entropy[ind].sum() / num_of_tokens[ind],
+                    'pe_mutual_information': mutual_information[ind].sum() / num_of_tokens[ind],
+                    'pe_EPKL': epkl[ind].sum() / num_of_tokens[ind],
+                    'pe_MKL': mkl[ind].sum() / num_of_tokens[ind],
                     'pe_sTU': scores[ind],
                     'pe_sMKL': scores_mkl[ind],
                     'ep_sTU': zero_tensor,
@@ -268,12 +286,16 @@ class ASRDistillationTask(SpeechRecognitionTask):
     def compute_ensemble_logits(self, sample):
         batch_size, num_tokens = sample['target'].size()
         ens_size, vocab_size = len(self.ensemble), len(self.tgt_dict)
+        dtype = torch.half if self.args.fp16 else torch.float
         sample['ensemble_logits'] = torch.empty((batch_size, num_tokens, ens_size, vocab_size),
-                                                dtype=torch.half if self.args.fp16 else torch.float,
-                                                device='cpu' if self.args.cpu else 'cuda')
+                                                dtype=dtype, device='cpu' if self.args.cpu else 'cuda')
 
         for i, model in enumerate(self.ensemble):
-            sample['ensemble_logits'][:, :, i] = model(**sample['net_input'])[0]
+            if self.fp16_ensemble:
+                net_input = {k: value.half() if value.dtype == torch.float else value for k, value in sample['net_input'].items()}
+            else:
+                net_input = sample['net_input']
+            sample['ensemble_logits'][:, :, i] = model(**net_input)[0].type(dtype)
         return sample
 
     def update_step(self, num_updates):
@@ -304,14 +326,26 @@ class ASRDistillationTask(SpeechRecognitionTask):
         from fairseq import models
         model = models.build_model(args, self)
         if args.init_from_model is not None:
-            model.load_state_dict(self.ensemble[args.init_from_model].state_dict())
-        if args.freeze_weights_until is not None and args.freeze_weights_until > 0:
+            if self.ensemble:
+                state_dict = self.ensemble[self.init_from_model].state_dict()
+                if not model.decoder.share_input_output_embed:
+                    state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
+                model.load_state_dict(state_dict, strict=False)
+            else:
+                print('Warning: ensemble_paths was empty and init_from_model is not None. Parameters were not overwritten')
+
+        if self.freeze_weights_until is not None and self.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
             freeze_module_params(model.decoder)
             # VGGTransformer-specific
             model.decoder.fc_out.requires_grad = True
 
-        if args.parametrization != 'exp':
+        if (self.parametrization != 'exp' or args.model_offset != 0) and not 'dirichlet' in args.arch:
+            print('Patching get_normalized_probs')
+
+            parametrization_func = self.parametrization_func
+            model_offset = args.model_offset
+
             # patching get_normalized_probs, as we may use something other than exp for mapping logits to positive numbers
             def patched_get_normalized_probs(self, net_output, log_probs, sample=None):
                 """Get normalized probabilities (or log probs) from a net's output."""
@@ -320,8 +354,10 @@ class ASRDistillationTask(SpeechRecognitionTask):
                     raise NotImplementedError()
 
                 logits = net_output[0]
-                unnormalized_probs = prob_parametrization[args.parametrization](logits)
+                unnormalized_probs = parametrization_func(logits.float()) + model_offset
                 probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
+                # add small constants for numerical stability
+                probs = probs * (1 - 1e-8) + 1e-8 * (1 / probs.size(-1))
                 if log_probs:
                     return probs.log()
                 else:
