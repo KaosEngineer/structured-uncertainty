@@ -25,7 +25,7 @@ prob_parametrization = {
 def get_dirichlet_parameters(model, net_output, parametrization_func, add_to_alphas=0):
     logits, extra = net_output
 
-    if 'dirichlet_params' in extra:
+    if extra is not None and 'dirichlet_params' in extra:
         means = model.get_normalized_probs(net_output, log_probs=False)
         precision = parametrization_func(extra['dirichlet_params'].float())
         alphas = means * precision + add_to_alphas
