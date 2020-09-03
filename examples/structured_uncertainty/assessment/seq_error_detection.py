@@ -242,6 +242,12 @@ def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
     ep_epkl = np.loadtxt(os.path.join(path, 'ep_epkl.txt'), dtype=np.float32)
     ep_mkl = np.loadtxt(os.path.join(path, 'ep_mkl.txt'), dtype=np.float32)
 
+
+    var = np.loadtxt(os.path.join(path, 'var.txt'), dtype=np.float64)
+    varcombo = np.loadtxt(os.path.join(path, 'varcombo.txt'), dtype=np.float64)
+    logvar = np.loadtxt(os.path.join(path, 'logvar.txt'), dtype=np.float64)
+    logcombo = np.loadtxt(os.path.join(path, 'logcombo.txt'), dtype=np.float64)
+
     unc_dict = {'Total Uncertainty-PE': eoe,
                 'Total Uncertainty-EP': ep_eoe,
                 'SCR-PE': score,
@@ -254,7 +260,11 @@ def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
                 'MKL': mkl,
                 'ep_MKL': ep_mkl,
                 'sMKL-PE': aep_du - score,
-                'sMKL-EP': npmi}
+                'sMKL-EP': npmi,
+                'var': var,
+                'varcombo': varcombo,
+                'logvar': logvar,
+                'logcomvo': logcombo}
     if os.path.exists(os.path.join(path, 'xbleu.txt')):
         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
         unc_dict['XBLEU'] = xbleu
