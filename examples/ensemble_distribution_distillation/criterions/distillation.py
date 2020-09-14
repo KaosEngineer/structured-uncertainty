@@ -6,6 +6,60 @@ from examples.ensemble_distribution_distillation.utils import prob_parametrizati
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import label_smoothed_nll_loss
+from fairseq.uncertainty import entropy, compute_token_dirichlet_uncertainties
+
+
+@torch.no_grad()
+def torch_spearmanr(tensor1, tensor2, dim):
+    _, ranks1 = torch.unique(tensor1, return_inverse=True, dim=dim)
+    _, ranks2 = torch.unique(tensor2, return_inverse=True, dim=dim)
+
+    ranks1 = ranks1.float()
+    ranks2 = ranks2.float()
+
+    ranks1_mean = torch.mean(ranks1, dim=dim, keepdim=True)
+    ranks2_mean = torch.mean(ranks2, dim=dim, keepdim=True)
+
+    return torch.nn.functional.cosine_similarity(ranks1 - ranks1_mean, ranks2 - ranks2_mean, dim=dim)
+
+
+@torch.no_grad()
+def compute_rank_ordering_stats(alphas, precision, ensemble_stats, pad_mask):
+    unsqueezed_precision = precision.unsqueeze(2)
+
+    normalized_probs = alphas / unsqueezed_precision
+    entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(alphas,
+                                                                                                                 unsqueezed_precision,
+                                                                                                                 normalized_probs)
+
+    ensemble_mean_probs = ensemble_stats['mean_probs']
+    ensemble_epkl = ensemble_stats['epkl']
+    ensemble_mkl = ensemble_stats['mkl']
+    ensemble_mutual_info = ensemble_stats['mutual_info']
+    ensemble_entropy_of_expected = entropy(ensemble_mean_probs, dim=-1)
+
+    assert entropy_of_expected.size() == ensemble_entropy_of_expected.size()
+    assert mkl.size() == ensemble_mkl.size()
+    assert epkl.size() == ensemble_epkl.size()
+
+    mkl.masked_fill_(pad_mask, 0.)
+    ensemble_mkl.masked_fill_(pad_mask, 0.)
+
+    entropy_of_expected.masked_fill_(pad_mask, 0.)
+    ensemble_entropy_of_expected.masked_fill_(pad_mask, 0.)
+
+    epkl.masked_fill_(pad_mask, 0.)
+    ensemble_epkl.masked_fill_(pad_mask, 0.)
+
+    mutual_information.masked_fill_(pad_mask, 0.)
+    ensemble_mutual_info.masked_fill_(pad_mask, 0.)
+
+    entropy_spearman = torch_spearmanr(entropy_of_expected, ensemble_entropy_of_expected, dim=-1)
+    epkl_spearman = torch_spearmanr(epkl, ensemble_epkl, dim=-1)
+    mkl_spearman = torch_spearmanr(mkl, ensemble_mkl, dim=-1)
+    mutual_info_spearman = torch_spearmanr(mutual_information, ensemble_mutual_info, dim=-1)
+
+    return entropy_spearman, epkl_spearman, mkl_spearman, mutual_info_spearman
 
 
 def compute_mean_forward_kl(model, sample, ensemble_stats, net_output, ignore_index, reduce):
@@ -40,8 +94,17 @@ def compute_epkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs):
 @torch.no_grad()
 def compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs):
     mkl = torch.nn.functional.kl_div(ensemble_logprobs, ensemble_mean_probs.unsqueeze(2).expand_as(ensemble_probs),
-                                     reduction='none').sum(3, keepdim=True).mean(2)
+                                     reduction='none').sum(3).mean(2)
     return mkl
+
+
+@torch.no_grad()
+def compute_mutual_information(ensemble_probs, ensemble_mean_probs, ensemble_logprobs):
+    exe = -torch.mean(torch.sum(ensemble_probs * ensemble_logprobs, dim=-1), dim=2)
+    log_mprobs = torch.log(ensemble_mean_probs)
+    eoe = -torch.sum(ensemble_mean_probs * log_mprobs, dim=-1)
+    mutual_info = eoe - exe
+    return mutual_info
 
 
 @torch.no_grad()
@@ -69,9 +132,11 @@ def compute_ensemble_stats(sample, precision_from_topk):
 
         epkl = compute_epkl(ensemble_probs_aggregated, ensemble_mean_probs_aggregated, ensemble_logprobs_aggregated)
         mkl = compute_mkl(ensemble_probs_aggregated, ensemble_mean_probs_aggregated, ensemble_logprobs_aggregated)
+        mutual_info = compute_mutual_information(ensemble_probs_aggregated, ensemble_mean_probs_aggregated, ensemble_logprobs_aggregated)
     else:
         epkl = compute_epkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
         mkl = compute_mkl(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
+        mutual_info = compute_mutual_information(ensemble_probs, ensemble_mean_probs, ensemble_logprobs)
 
     stats = {
         'probs': ensemble_probs,
@@ -79,6 +144,7 @@ def compute_ensemble_stats(sample, precision_from_topk):
         'logprobs': ensemble_logprobs,
         'epkl': epkl,
         'mkl': mkl,
+        'mutual_info': mutual_info
     }
     return stats
 
@@ -263,6 +329,16 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         precision_max = precision.max()
         stats = {'precision_mean': precision_sum, 'precision_min': precision_min, 'precision_max': precision_max}
 
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
+
+        entropy_spearman, epkl_spearman, mkl_spearman, mutual_info_spearman = \
+            compute_rank_ordering_stats(alphas, precision, ensemble_stats, pad_mask)
+
+        stats['entropy_spearman'] = entropy_spearman
+        stats['epkl_spearman'] = epkl_spearman
+        stats['mkl_spearman'] = mkl_spearman
+        stats['mutual_info_spearman'] = mutual_info_spearman
+
         alphas = alphas / temp
         precision = precision / temp
 
@@ -299,7 +375,6 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
         cost = (target_dependent_term + target_independent_term) / temp
 
         # mask loss for padding tokens
-        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
@@ -318,6 +393,14 @@ class SequenceDistributionDistillationCritertion(_DistillationCriterionBase):
                 log.get('precision_min', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
             'precision_max': sum(
                 log.get('precision_max', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
+            'entropy_spearman': sum(
+                log.get('entropy_spearman', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
+            'epkl_spearman': sum(
+                log.get('epkl_spearman', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
+            'mkl_spearman': sum(
+                log.get('mkl_spearman', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
+            'mutual_info_spearman': sum(
+                log.get('mutual_info_spearman', 0) for log in logging_outputs) / number_of_outputs if number_of_outputs > 0 else 0.,
         }
 
 
@@ -344,7 +427,7 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
         num_classes = alphas.size(-1)
 
         if self.target_concentration == 'mkl':
-            mkl = ensemble_stats['mkl']
+            mkl = ensemble_stats['mkl'].unsqueeze(2)
             ensemble_precision = (num_classes - 1) / (2 * mkl + EPS)
         elif self.target_concentration == 'epkl':
             epkl = ensemble_stats['epkl'].unsqueeze(2)
@@ -367,9 +450,19 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
         ensemble_precision_min = ensemble_precision.min()
         ensemble_precision_max = ensemble_precision.max()
 
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
+
         stats = {'precision': precision_sum, 'precision_min': precision_min, 'precision_max': precision_max,
                  'ensemble_precision': ensemble_precision_sum, 'ensemble_precision_min': ensemble_precision_min,
                  'ensemble_precision_max': ensemble_precision_max}
+
+        entropy_spearman, epkl_spearman, mkl_spearman, mutual_info_spearman = \
+            compute_rank_ordering_stats(alphas, precision, ensemble_stats, pad_mask)
+
+        stats['entropy_spearman'] = entropy_spearman
+        stats['epkl_spearman'] = epkl_spearman
+        stats['mkl_spearman'] = mkl_spearman
+        stats['mutual_info_spearman'] = mutual_info_spearman
 
         alphas = alphas / temp
         precision = precision / temp
@@ -405,7 +498,6 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
 
         cost = target_dependent_term + target_independent_term
         # mask loss for padding tokens
-        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
