@@ -33,6 +33,7 @@ class DistillationTask(TranslationTask):
     def __init__(self, args, src_dict, tgt_dict, models):
         super().__init__(args, src_dict, tgt_dict)
         self.ensemble = models
+        self.init_from_model = args.init_from_model
 
         self.anneal_start = args.anneal_start
         self.anneal_end = args.anneal_end
