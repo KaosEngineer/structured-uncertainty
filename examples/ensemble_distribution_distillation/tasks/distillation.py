@@ -343,7 +343,7 @@ class DistillationTask(TranslationTask):
             else:
                 model.decoder.embed_out.requires_grad = True
 
-        if (self.parametrization != 'exp' or args.model_offset != 0) and not 'dirichlet' in args.arch:
+        if self.parametrization != 'exp' and not 'dirichlet' in args.arch:
             print('Patching get_normalized_probs')
 
             parametrization_func = self.parametrization_func
