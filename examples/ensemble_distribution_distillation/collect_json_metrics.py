@@ -23,29 +23,26 @@ def parse_uncertainty_metrics(f, report_nbest=None):
 
 def main(decode_path, reference_path, output_path):
     with open(decode_path / 'results-test.txt') as test_preds_f:
-        result_line = test_preds_f.readlines()[-1].strip()
+        result_line = test_preds_f.read()
         test_bleu = float(re.search(r"BLEU = (\d*.\d*)", result_line).group(1))
     scores = np.loadtxt(reference_path / 'test' / 'score.txt', dtype=np.float64)
 
     ood_metrics = dict()
 
-    for testset in ['test5', 'test6', 'test9', 'test12', 'test14']:
-        with open(decode_path / testset / 'results_ood_mc.txt') as f:
-            decode_mc_seq = parse_uncertainty_metrics(f, report_nbest=(5,))
+    for testset in ['test9', 'test12', 'test14']:
         with open(decode_path / testset / 'results_ood_bs.txt') as f:
             decode_bs_seq = parse_uncertainty_metrics(f, report_nbest=(5,))
         with open(reference_path / testset / 'results_ood_mc.txt') as f:
-            ref_bs_seq = parse_uncertainty_metrics(f, report_nbest=(5,))
+            ref_bs_seq = parse_uncertainty_metrics(f, report_nbest=(1,))
 
         ood_metrics.update({
-            **{f'ood_{testset}_decode_mc_{key}': value for key, value in decode_mc_seq.items()},
             **{f'ood_{testset}_decode_bs_{key}': value for key, value in decode_bs_seq.items()},
             **{f'ood_{testset}_reference_bs_{key}': value for key, value in ref_bs_seq.items()},
         })
 
     seq_error_metrics = dict()
 
-    for testset in ['test', 'test5']:
+    for testset in ['test']:
         with open(decode_path / testset / 'results_seq_mc.txt') as f:
             decode_mc_seq = parse_uncertainty_metrics(f, report_nbest=(1,))
 
