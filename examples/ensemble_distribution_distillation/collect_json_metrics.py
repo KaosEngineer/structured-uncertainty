@@ -25,13 +25,16 @@ def parse_uncertainty_metrics(f, report_nbest=None):
 
 
 def main(decode_path, reference_path, output_path, ensemble_decode_path):
-    with open(decode_path / 'results-test.txt') as test_preds_f:
-        result_line = test_preds_f.read()
-        test_bleu = float(re.search(r"BLEU = (\d*.\d*)", result_line).group(1))
+    bleu_stats = dict()
+    for testset in ('test', 'test_ens_pred', 'test5_ens_pred', 'test9_ens_pred', 'test12_ens_pred', 'test14_ens_pred'):
+        with open(decode_path / f'results-{testset}.txt') as test_preds_f:
+            result_line = test_preds_f.read()
+            test_bleu = float(re.search(r"BLEU = (\d*.\d*)", result_line).group(1))
+            bleu_stats[f'{testset} BLEU'] = test_bleu
+
     scores = np.loadtxt(reference_path / 'test' / 'score.txt', dtype=np.float64)
 
     ood_metrics = dict()
-
     for testset in ['test9', 'test12', 'test14']:
         with open(decode_path / testset / 'results_ood_bs.txt') as f:
             decode_bs_seq = parse_uncertainty_metrics(f, report_nbest=(5,))
@@ -44,7 +47,6 @@ def main(decode_path, reference_path, output_path, ensemble_decode_path):
         })
 
     seq_error_metrics = dict()
-
     for testset in ['test']:
         with open(decode_path / testset / 'results_seq_mc.txt') as f:
             decode_mc_seq = parse_uncertainty_metrics(f, report_nbest=(1,))
@@ -72,7 +74,7 @@ def main(decode_path, reference_path, output_path, ensemble_decode_path):
                 sequence_spearman_metrics[f'spearman_{testset}_{metric_name}'] = spearman_correlation
 
     result_dict = {
-        'test BLEU': test_bleu,
+        **bleu_stats,
         'test NLL': scores.mean(),
         **ood_metrics,
         **seq_error_metrics,
