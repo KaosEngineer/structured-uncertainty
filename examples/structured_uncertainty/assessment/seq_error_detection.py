@@ -226,7 +226,6 @@ def reject_predictions_bleu(refs, hypos, measure, path,
     # with open(os.path.join(save_path, 'results.txt'), 'a') as f:
     #     f.write(f'Rejection Ratio using {measure_name}: {np.round(rejection_ratio, 1)}\n')
 
-
 def load_text(path, beam_width=5):
     refs, hypos = [], []
     with open(os.path.join(path, 'refs.txt'), 'r') as f:

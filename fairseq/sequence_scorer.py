@@ -204,13 +204,13 @@ class SequenceScorerWithUncertainty(SequenceScorer):
 
         stacked_lprobs = torch.stack(stacked_lprobs, dim=0)
         esz = stacked_lprobs.size(0)
-        #tok_unc = token_uncertainties(stacked_lprobs)
+        # tok_unc = token_uncertainties(stacked_lprobs)
 
         target_lprobs = torch.stack(target_lprobs, dim=0)
         avg_lprobs = torch.logsumexp(target_lprobs, dim=0) - torch.log(torch.tensor
-                                                                      (esz, dtype=torch.float32))
+                                                                       (esz, dtype=torch.float32))
         aep_lprobs = target_lprobs.permute(1, 0, 2)
-        stacked_lprobs = stacked_lprobs.permute(1,0,2,3)
+        stacked_lprobs = stacked_lprobs.permute(1, 0, 2, 3)
         bsz = target_lprobs.size(1)
         hypos = []
         start_idxs = sample['start_indices'] if 'start_indices' in sample else [0] * bsz
@@ -224,14 +224,15 @@ class SequenceScorerWithUncertainty(SequenceScorer):
             score_i = avg_lprobs_i.sum() / tgt_len
             eos_enscores = torch.sum(aep_lprobs[i][:, :tgt_len], dim=1, keepdim=True)
             enscores = torch.cumsum(aep_lprobs[i][:, :tgt_len], dim=1)
-            tok_unc = token_uncertainties(stacked_lprobs[i][:, :tgt_len, :], enscores=enscores, step=tgt_len, decode=False)
+            tok_unc = token_uncertainties(stacked_lprobs[i][:, :tgt_len, :], enscores=enscores, step=tgt_len,
+                                          decode=False)
 
             token_aep_tu = -avg_lprobs[i][start_idxs[i]:start_idxs[i] + tgt_len]
             token_aep_du = -torch.mean(aep_lprobs[i][:, :tgt_len], dim=0)
 
             prex_pos_scores = torch.cumsum(torch.logsumexp(aep_lprobs[i], dim=0) -
                                            torch.log(torch.tensor(esz, dtype=torch.float32)), dim=0)
-            ep_sTU, sDU, ep_sMKL, pe_sTU, pe_sMKL = seq_uncertainties(eos_enscores,
+            ep_sTU, sDU, ep_sMKL, pe_sTU, pe_sMKL, expr_var, expr_varcombo, expr_logvar, expr_logcombo = seq_uncertainties(eos_enscores,
                                                                       prex_pos_scores.unsqueeze(0),
                                                                       tgt_len - 1)
             token_ep_TU, token_DU, token_ep_MKL, \
@@ -284,7 +285,11 @@ class SequenceScorerWithUncertainty(SequenceScorer):
                     'sDU': sDU.squeeze(),
                     'ep_sMKL': ep_sMKL.squeeze(),
                     'pe_sMKL': pe_sMKL.squeeze(),
-                    'log-prob': score_i*tgt_len
+                    'log-prob': score_i * tgt_len,
+                    'var': expr_var.squeeze(),
+                    'combo': expr_varcombo.squeeze(),
+                    'logvar': expr_logvar.squeeze(),
+                    'logcombo': expr_logcombo.squeeze()
                 },
             }])
         return hypos

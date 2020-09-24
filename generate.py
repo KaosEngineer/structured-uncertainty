@@ -257,7 +257,7 @@ def main(args):
                                 ))
                             ))
 
-                            print('SU-{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                            print('SU-{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
                                 sample_id,
                                 hypo['sequence_uncertainties']['pe_entropy_of_expected'].float().cpu(),
                                 hypo['sequence_uncertainties']['expected_entropy'].float().cpu(),
@@ -274,6 +274,10 @@ def main(args):
                                 hypo['sequence_uncertainties']['ep_EPKL'].float().cpu(),
                                 hypo['sequence_uncertainties']['ep_MKL'].float().cpu(),
                                 hypo['sequence_uncertainties']['pe_MKL'].float().cpu(),
+                                hypo['sequence_uncertainties']['var'].float().cpu(),
+                                hypo['sequence_uncertainties']['combo'].float().cpu(),
+                                hypo['sequence_uncertainties']['logvar'].float().cpu(),
+                                hypo['sequence_uncertainties']['logcombo'].float().cpu(),
                             ))
 
                         if args.print_alignment:

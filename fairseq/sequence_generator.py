@@ -894,7 +894,7 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
             prex_eos_scores = torch.cumsum(torch.logsumexp(pos_enscores, dim=0) - \
                                            torch.log(torch.tensor(esz, dtype=torch.float32)), dim=1)
             token_ep_TU, token_DU, token_ep_MKL, token_pe_TU, token_pe_MKL = token_aep_uncertainty(pos_enscores)
-            ep_tu, aep_du, ep_mkl, pe_tu, pe_mkl = seq_uncertainties(eos_enscores.view(esz, -1), prex_eos_scores, step)
+            ep_tu, aep_du, ep_mkl, pe_tu, pe_mkl, expr_var, expr_varcombo, expr_logvar, expr_logcombo = seq_uncertainties(eos_enscores.view(esz, -1), prex_eos_scores, step)
             # normalize sentence-level scores
             if self.normalize_scores:
                 eos_scores /= (step + 1) ** self.len_penalty
@@ -961,7 +961,11 @@ class SequenceGeneratorWithUncertainty(SequenceGenerator):
                                                    'sDU': aep_du[i],
                                                    'ep_sMKL': ep_mkl[i],
                                                    'pe_sMKL': pe_mkl[i],
-                                                   'log-prob': score*(step + 1)
+                                                   'log-prob': score*(step + 1),
+                                                   'var': expr_var[i],
+                                                   'combo' : expr_varcombo[i],
+                                                   'logvar': expr_logvar[i],
+                                                   'logcombo': expr_logcombo[i]
                                                    }
                     }
 
