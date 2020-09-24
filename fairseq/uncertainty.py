@@ -106,7 +106,7 @@ def token_aep_uncertainty(pos_enscores):
 EPS = 1e-8
 
 
-def entropy(probs, dim=-1):
+def entropy(probs, dim: int = -1):
     return -(probs * (probs + EPS).log()).sum(dim=dim)
 
 
@@ -114,30 +114,37 @@ def compute_token_dirichlet_uncertainties(dirichlet_params, concentrations, expe
     batch_size, num_tokens, vocab_size = dirichlet_params.size()
 
     entropy_of_expected = entropy(expected_dirichlet)
+    assert (entropy_of_expected >= 0).all()
     expected_entropy = (-expected_dirichlet * (torch.digamma(dirichlet_params + 1) - torch.digamma(concentrations + 1))).sum(dim=-1)
+    assert (expected_entropy >= -1e-3).all()
 
     mutual_information = entropy_of_expected - expected_entropy
-    # mi >=0
+    assert (mutual_information >= -1e-3).all()
     epkl = (vocab_size - 1) / concentrations.squeeze(2)
-    # epkl >=0
-    mkl = (-expected_dirichlet * (torch.digamma(dirichlet_params) - torch.digamma(concentrations))).sum(dim=-1) - entropy_of_expected
-    # epkl >=0
-    assert torch.allclose(epkl, mutual_information + mkl)
+    assert (epkl >= 0).all()
+    mkl = (-expected_dirichlet * (torch.digamma(dirichlet_params + EPS) - torch.digamma(concentrations + EPS))).sum(
+        dim=-1) - entropy_of_expected
+    assert (mkl >= 0).all()
 
     return entropy_of_expected, expected_entropy, mutual_information, epkl, mkl
 
 
-def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, log_expected_probs, predict_inds, mask):
+def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, log_expected_probs, predict_inds, mask, num_tokens):
     unsqueezed_inds = predict_inds.unsqueeze(-1)
 
-    token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2) * mask
+    token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2)
+    if mask.any():
+        token_log_probs.masked_fill(mask, 0)
 
     log_probs = token_log_probs.sum(dim=1)
-    scores = -log_probs / mask.sum(dim=1)
+    scores = -log_probs / num_tokens
     # scores >=0
 
-    token_scores_mkl = ((torch.digamma(concentrations) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds))).squeeze(
-        2) * mask) + token_log_probs
+    token_scores_mkl = (torch.digamma(concentrations + EPS) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds) + EPS)
+                        ).squeeze(2) + token_log_probs
 
-    scores_mkl = token_scores_mkl.sum(1) / mask.sum(1)
+    if mask.any():
+        token_scores_mkl.masked_fill(mask, 0)
+
+    scores_mkl = token_scores_mkl.sum(1) / num_tokens
     return log_probs, scores, scores_mkl

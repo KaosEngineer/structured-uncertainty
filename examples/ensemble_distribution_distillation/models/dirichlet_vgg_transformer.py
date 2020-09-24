@@ -8,7 +8,7 @@ from fairseq.modules import LinearizedConvolution, TransformerDecoderLayer
 class DirichletTransformerDecoder(TransformerDecoder):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.dirichlet_projection = nn.Linear(self.output_embed_dim, 1)
+        self.dirichlet_projection = nn.Linear(self.fc_out.in_features, 1)
 
     def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None):
         """
