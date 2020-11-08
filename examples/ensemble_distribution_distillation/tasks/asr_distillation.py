@@ -229,11 +229,11 @@ class ASRDistillationTask(SpeechRecognitionTask):
                                                                                                                      concentrations,
                                                                                                                      normalized_probs)
         if mask.any():
-            entropy_of_expected.masked_fill(mask, 0)
-            expected_entropy.masked_fill(mask, 0)
-            mutual_information.masked_fill(mask, 0)
-            epkl.masked_fill(mask, 0)
-            mkl.masked_fill(mask, 0)
+            entropy_of_expected.masked_fill_(mask, 0)
+            expected_entropy.masked_fill_(mask, 0)
+            mutual_information.masked_fill_(mask, 0)
+            epkl.masked_fill_(mask, 0)
+            mkl.masked_fill_(mask, 0)
 
         log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
                                                                                  normalized_logprobs, tokens, mask, num_of_tokens)

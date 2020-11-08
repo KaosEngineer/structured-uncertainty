@@ -3,7 +3,8 @@ from types import MethodType
 
 import torch
 
-from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params, get_dirichlet_parameters
+from examples.ensemble_distribution_distillation.utils import prob_parametrization, freeze_module_params, \
+    get_dirichlet_parameters
 from fairseq import options, checkpoint_utils
 from fairseq.data import data_utils
 from fairseq.data.data_utils import collate_tokens
@@ -11,7 +12,8 @@ from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
-EPS=1e-10
+EPS = 1e-10
+
 
 @register_task('distillation')
 class DistillationTask(TranslationTask):
@@ -21,8 +23,10 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
         parser.add_argument('--anneal-start', type=int, help='First update from which to start temperature annealing')
         parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
-        parser.add_argument('--init-from-model', type=int, default=None, help='Model index in ensemble_paths to use for initialization')
-        parser.add_argument('--freeze-weights-until', type=int, help='Freeze encoder/decoder weights until a given step')
+        parser.add_argument('--init-from-model', type=int, default=None,
+                            help='Model index in ensemble_paths to use for initialization')
+        parser.add_argument('--freeze-weights-until', type=int,
+                            help='Freeze encoder/decoder weights until a given step')
         parser.add_argument('--init-temp', type=float, default=1)
         parser.add_argument('--final-temp', type=float, default=1)
         parser.add_argument('--init-xent-weight', type=float, default=0)
@@ -208,19 +212,18 @@ class DistillationTask(TranslationTask):
         tokens = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
                                 eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad())
         prev_output = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
-                                     eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad(), move_eos_to_beginning=True)
-
-        print("TOKENS", tokens)
-        print("PREV_TOKENS", prev_output)
+                                     eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad(),
+                                     move_eos_to_beginning=True)
 
         src_tokens = sample['net_input']['src_tokens']
         src_lengths = sample['net_input']['src_lengths']
         prev_tokens = sample['net_input']['prev_output_tokens']
 
-        sample['net_input']['src_tokens'] = torch.repeat_interleave(sample['net_input']['src_tokens'], self.args.nbest, dim=0)
-        sample['net_input']['src_lengths'] = torch.repeat_interleave(sample['net_input']['src_lengths'], self.args.nbest, dim=0)
+        sample['net_input']['src_tokens'] = torch.repeat_interleave(sample['net_input']['src_tokens'], self.args.nbest,
+                                                                    dim=0)
+        sample['net_input']['src_lengths'] = torch.repeat_interleave(sample['net_input']['src_lengths'],
+                                                                     self.args.nbest, dim=0)
         sample['net_input']['prev_output_tokens'] = prev_output
-
 
         net_output = model(**sample['net_input'])
 
@@ -228,28 +231,34 @@ class DistillationTask(TranslationTask):
         sample['net_input']['src_lengths'] = src_lengths
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
-        #TODO FIX +1 TO ALPHAS ISSUE
-        dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func)
-        concentrations = concentrations.unsqueeze(2)
+        # TODO FIX +1 TO ALPHAS ISSUE
+        dirichlet_params, precisions = get_dirichlet_parameters(model, net_output, self.parametrization_func, add_to_alphas=1.0)
+        precisions = precisions.unsqueeze(2)
 
         normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
         normalized_logprobs = normalized_probs.log()
 
         mask = tokens.eq(self.tgt_dict.pad())
         num_of_tokens = torch.sum(~mask, dim=1)
-        entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(dirichlet_params,
-                                                                                                                     concentrations,
-                                                                                                                     normalized_probs)
+        entropy_of_expected, expected_entropy, mutual_information, epkl, mkl = compute_token_dirichlet_uncertainties(
+            dirichlet_params,
+            precisions,
+            normalized_probs)
         if mask.any():
-            entropy_of_expected.masked_fill(mask, 0)
-            expected_entropy.masked_fill(mask, 0)
-            mutual_information.masked_fill(mask, 0)
-            epkl.masked_fill(mask, 0)
-            mkl.masked_fill(mask, 0)
+            entropy_of_expected.masked_fill_(mask, 0.0)
+            expected_entropy.masked_fill_(mask, 0.0)
+            mutual_information.masked_fill_(mask, 0.0)
+            epkl.masked_fill_(mask, 0.0)
+            mkl.masked_fill_(mask, 0.0)
+        assert (entropy_of_expected >= 0.0).all()
+        assert (expected_entropy >= 0.0).all()
+        print("MI:", mutual_information.min())
+        assert (epkl >= 0.0).all()
+        assert (mkl >= 0.0).all()
 
-        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
-                                                                                 normalized_logprobs, tokens, mask, num_of_tokens)
-
+        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, precisions,
+                                                                                 normalized_logprobs, tokens, mask,
+                                                                                 num_of_tokens)
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent[:self.args.nbest]):
                 ind = i * self.args.nbest + j
@@ -276,21 +285,30 @@ class DistillationTask(TranslationTask):
                 zero_tensor = zeros_tensor.sum()
 
                 hypo['sequence_uncertainties'] = {
-                    'log-prob': log_probs[ind],
                     'pe_entropy_of_expected': entropy_of_expected[ind].sum() / num_of_tokens[ind],
                     'expected_entropy': expected_entropy[ind].sum() / num_of_tokens[ind],
                     'pe_mutual_information': mutual_information[ind].sum() / num_of_tokens[ind],
                     'pe_EPKL': epkl[ind].sum() / num_of_tokens[ind],
-                    'pe_MKL': mkl[ind].sum() / num_of_tokens[ind],
                     'pe_sTU': scores[ind],
-                    'pe_sMKL': scores_mkl[ind],
+
                     'ep_sTU': zero_tensor,
                     'sDU': zero_tensor,
                     'ep_sMKL': zero_tensor,
+
+                    'pe_sMKL': scores_mkl[ind],
+                    'log-prob': log_probs[ind],
+
                     'ep_entropy_of_expected': zero_tensor,
                     'ep_mutual_information': zero_tensor,
                     'ep_EPKL': zero_tensor,
-                    'ep_MKL': zero_tensor
+                    'ep_MKL': zero_tensor,
+
+                    'pe_MKL': mkl[ind].sum() / num_of_tokens[ind],
+
+                    'var': zero_tensor,
+                    'combo': zero_tensor,
+                    'logvar': zero_tensor,
+                    'logcombo': zero_tensor
                 }
 
     @torch.no_grad()
@@ -332,14 +350,14 @@ class DistillationTask(TranslationTask):
         """
         from fairseq import models
         model = models.build_model(args, self)
-        if args.init_from_model is not None:
-            if self.ensemble:
-                state_dict = self.ensemble[self.init_from_model].state_dict()
-                if not model.decoder.share_input_output_embed:
-                    state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
-                model.load_state_dict(state_dict, strict=False)
-            else:
-                print('Warning: ensemble_paths was empty and init_from_model is not None. Parameters were not overwritten')
+        # if args.init_from_model is not None:
+        #     if self.ensemble:
+        #         state_dict = self.ensemble[self.init_from_model].state_dict()
+        #         if not model.decoder.share_input_output_embed:
+        #             state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
+        #         model.load_state_dict(state_dict, strict=False)
+        #     else:
+        #         print('Warning: ensemble_paths was empty and init_from_model is not None. Parameters were not overwritten')
 
         if self.freeze_weights_until is not None and self.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
@@ -363,7 +381,6 @@ class DistillationTask(TranslationTask):
                     raise NotImplementedError()
 
                 logits = net_output[0]
-                #TODO CHECK THAT THIS DOESN'T CAUSE ISSUES...
                 unnormalized_probs = parametrization_func(logits.float()) + model_offset
                 probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
                 # add small constants for numerical stability

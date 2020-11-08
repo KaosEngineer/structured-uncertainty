@@ -1,6 +1,6 @@
 import torch
 
-EPS = 1e-10
+EPS = 1e-20
 
 
 def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
@@ -123,7 +123,7 @@ def token_aep_uncertainty(pos_enscores):
 
 
 def entropy(probs, dim: int = -1):
-    return -(probs * (probs + EPS).log()).sum(dim=dim)
+    return -(probs * (probs).log()).sum(dim=dim)
 
 
 def compute_token_dirichlet_uncertainties(dirichlet_params, precisions, expected_dirichlet):
@@ -138,19 +138,23 @@ def compute_token_dirichlet_uncertainties(dirichlet_params, precisions, expected
     batch_size, num_tokens, vocab_size = dirichlet_params.size()
 
     entropy_of_expected = entropy(expected_dirichlet)
-    assert (entropy_of_expected >= 0).all()
+    assert (entropy_of_expected >= 0.0).all()
     expected_entropy = (
-            -expected_dirichlet * (torch.digamma(dirichlet_params + 1) - torch.digamma(precisions + 1))).sum(
+            -expected_dirichlet * (torch.digamma(dirichlet_params + 1.0) - torch.digamma(precisions + 1.0))).sum(
         dim=-1)
-    assert (expected_entropy >= -1e-3).all()
+    mutual_information = ((expected_dirichlet + EPS) * (
+                torch.log(expected_dirichlet + EPS) - torch.digamma(dirichlet_params + 1.0 + EPS) + torch.digamma(
+            precisions + 1.0 + EPS))).sum(
+        dim=-1)
 
-    mutual_information = entropy_of_expected - expected_entropy
-    assert (mutual_information >= -1e-3).all()
+    assert (mutual_information >= 0.0).all()
     epkl = (vocab_size - 1) / precisions.squeeze(2)
-    assert (epkl >= 0).all()
-    mkl = (-expected_dirichlet * (torch.digamma(dirichlet_params + EPS) - torch.digamma(precisions + EPS))).sum(
-        dim=-1) - entropy_of_expected
-    assert (mkl >= 0).all()
+    assert (epkl >= 0.0).all()
+    mkl = (expected_dirichlet * (
+                torch.log(expected_dirichlet + EPS) - torch.digamma(dirichlet_params + EPS) + torch.digamma(
+            precisions + EPS))).sum(
+        dim=-1)
+    assert (mkl >= 0.0).all()
 
     return entropy_of_expected, expected_entropy, mutual_information, epkl, mkl
 
@@ -167,12 +171,12 @@ def compute_sequence_dirichlet_uncertainties(dirichlet_params, precisions, log_e
     :param num_tokens:  Tensor of size [batch_size] of masked token ids
     :return:
     """
-    unsqueezed_inds = predict_inds.unsqueeze(-1) # now [batch_size, seq_len, 1]
+    unsqueezed_inds = predict_inds.unsqueeze(-1)  # now [batch_size, seq_len, 1]
 
     token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2)
     # token_log_probs now [batch_size, seq_len]
     if mask.any():
-        token_log_probs.masked_fill(mask, 0)
+        token_log_probs.masked_fill_(mask, 0.0)
 
     log_probs = token_log_probs.sum(dim=1)
     scores = -log_probs / num_tokens
@@ -183,7 +187,7 @@ def compute_sequence_dirichlet_uncertainties(dirichlet_params, precisions, log_e
                         ).squeeze(2) + token_log_probs
 
     if mask.any():
-        token_scores_mkl.masked_fill(mask, 0)
+        token_scores_mkl.masked_fill_(mask, 0.0)
 
     scores_mkl = token_scores_mkl.sum(dim=1) / num_tokens
     return log_probs, scores, scores_mkl

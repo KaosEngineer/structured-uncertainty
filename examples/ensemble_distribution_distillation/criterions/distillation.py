@@ -480,6 +480,7 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
     def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         temp = self.task.temp
 
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
         alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func, self.model_offset)
 
         num_classes = alphas.size(-1)
@@ -494,9 +495,8 @@ class DirichletMediatorDistillationCriterion(SequenceDistributionDistillationCri
         ensemble_params = ensemble_stats['mean_probs'] * ensemble_precision + self.target_offset
         ensemble_precision += self.target_offset * num_classes
 
-        precision_sum = precision.sum()
+        precision_sum = precision.masked_fill_(pad_mask, 0.).sum()
 
-        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
 
         stats = {'precision': precision_sum, **compute_rank_ordering_stats(alphas, precision, ensemble_stats, pad_mask)}
 
@@ -563,6 +563,7 @@ class RKLDirichletMediatorDistillationCriterion(DirichletMediatorDistillationCri
 
     def compute_loss(self, model, net_output, ensemble_stats, sample, reduce):
         temp = self.task.temp
+        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
 
         alphas, precision = get_dirichlet_parameters(model, net_output, self.parametrization_func, self.model_offset)
 
@@ -585,12 +586,12 @@ class RKLDirichletMediatorDistillationCriterion(DirichletMediatorDistillationCri
         ensemble_params = ensemble_stats['mean_probs'] * ensemble_precision + self.target_offset
         ensemble_precision += self.target_offset * num_classes
 
-        precision_sum = precision.sum()
+        precision_sum = precision.masked_fill_(pad_mask, 0.).sum()
         precision_min = precision.min()
-        precision_max = precision.max()
-        ensemble_precision_sum = ensemble_precision.sum()
+        precision_max = precision.masked_fill_(pad_mask, 0.).max()
+        ensemble_precision_sum = ensemble_precision.masked_fill_(pad_mask, 0.).sum()
         ensemble_precision_min = ensemble_precision.min()
-        ensemble_precision_max = ensemble_precision.max()
+        ensemble_precision_max = ensemble_precision.masked_fill_(pad_mask, 0.).max()
 
         stats = {'precision': precision_sum, 'precision_min': precision_min, 'precision_max': precision_max,
                  'ensemble_precision': ensemble_precision_sum, 'ensemble_precision_min': ensemble_precision_min,
@@ -637,7 +638,6 @@ class RKLDirichletMediatorDistillationCriterion(DirichletMediatorDistillationCri
         #     dim=-1)
 
         # mask loss for padding tokens
-        pad_mask = model.get_targets(sample, net_output).eq(self.padding_idx)
         cost.masked_fill_(pad_mask, 0.)
 
         if reduce:
