@@ -138,25 +138,26 @@ def compute_token_dirichlet_uncertainties(dirichlet_params, precisions, expected
     batch_size, num_tokens, vocab_size = dirichlet_params.size()
 
     entropy_of_expected = entropy(expected_dirichlet)
-    assert (entropy_of_expected >= 0.0).all()
+
     expected_entropy = (
             -expected_dirichlet * (torch.digamma(dirichlet_params + 1.0) - torch.digamma(precisions + 1.0))).sum(
         dim=-1)
     mutual_information = ((expected_dirichlet + EPS) * (
-                torch.log(expected_dirichlet + EPS) - torch.digamma(dirichlet_params + 1.0 + EPS) + torch.digamma(
-            precisions + 1.0 + EPS))).sum(
+            torch.log(expected_dirichlet + EPS) - torch.digamma(dirichlet_params + 1.0 + EPS) + torch.digamma(
+        precisions + 1.0 + EPS))).sum(
         dim=-1)
 
-    assert (mutual_information >= 0.0).all()
     epkl = (vocab_size - 1) / precisions.squeeze(2)
-    assert (epkl >= 0.0).all()
     mkl = (expected_dirichlet * (
-                torch.log(expected_dirichlet + EPS) - torch.digamma(dirichlet_params + EPS) + torch.digamma(
-            precisions + EPS))).sum(
+            torch.log(expected_dirichlet + EPS) - torch.digamma(dirichlet_params + EPS) + torch.digamma(
+        precisions + EPS))).sum(
         dim=-1)
-    assert (mkl >= 0.0).all()
 
-    return entropy_of_expected, expected_entropy, mutual_information, epkl, mkl
+    return entropy_of_expected.clamp_(min=0.0, max=None), \
+           expected_entropy.clamp_(min=0.0, max=None), \
+           mutual_information.clamp_(min=0.0, max=None), \
+           epkl.clamp_(min=0.0, max=None), \
+           mkl.clamp_(min=0.0, max=None)
 
 
 def compute_sequence_dirichlet_uncertainties(dirichlet_params, precisions, log_expected_probs, predict_inds, mask,
@@ -190,4 +191,4 @@ def compute_sequence_dirichlet_uncertainties(dirichlet_params, precisions, log_e
         token_scores_mkl.masked_fill_(mask, 0.0)
 
     scores_mkl = token_scores_mkl.sum(dim=1) / num_tokens
-    return log_probs, scores, scores_mkl
+    return log_probs, scores, scores_mkl, token_log_probs, token_scores_mkl

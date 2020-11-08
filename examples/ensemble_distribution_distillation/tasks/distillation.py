@@ -12,7 +12,7 @@ from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
-EPS = 1e-10
+EPS = 1e-14
 
 
 @register_task('distillation')
@@ -43,6 +43,7 @@ class DistillationTask(TranslationTask):
         self.anneal_start = args.anneal_start
         self.anneal_end = args.anneal_end
 
+        self.model_offset = args.model_offset
         self.init_temp = args.init_temp
         self.final_temp = args.final_temp
         self.temp = args.init_temp
@@ -231,8 +232,8 @@ class DistillationTask(TranslationTask):
         sample['net_input']['src_lengths'] = src_lengths
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
-        # TODO FIX +1 TO ALPHAS ISSUE
-        dirichlet_params, precisions = get_dirichlet_parameters(model, net_output, self.parametrization_func, add_to_alphas=1.0)
+        dirichlet_params, precisions = get_dirichlet_parameters(model, net_output, self.parametrization_func,
+                                                                add_to_alphas=self.model_offset)
         precisions = precisions.unsqueeze(2)
 
         normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
@@ -244,21 +245,19 @@ class DistillationTask(TranslationTask):
             dirichlet_params,
             precisions,
             normalized_probs)
+
+        log_probs, scores, scores_mkl, token_log_probs, token_scokes_mkl = compute_sequence_dirichlet_uncertainties(
+            dirichlet_params, precisions,
+            normalized_logprobs, tokens, mask,
+            num_of_tokens)
+
         if mask.any():
             entropy_of_expected.masked_fill_(mask, 0.0)
             expected_entropy.masked_fill_(mask, 0.0)
             mutual_information.masked_fill_(mask, 0.0)
             epkl.masked_fill_(mask, 0.0)
             mkl.masked_fill_(mask, 0.0)
-        assert (entropy_of_expected >= 0.0).all()
-        assert (expected_entropy >= 0.0).all()
-        print("MI:", mutual_information.min())
-        assert (epkl >= 0.0).all()
-        assert (mkl >= 0.0).all()
 
-        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, precisions,
-                                                                                 normalized_logprobs, tokens, mask,
-                                                                                 num_of_tokens)
         for i, sent in enumerate(hypos):
             for j, hypo in enumerate(sent[:self.args.nbest]):
                 ind = i * self.args.nbest + j
@@ -277,9 +276,9 @@ class DistillationTask(TranslationTask):
                     'ep_MKL': zeros_tensor,
                     'token_DU': zeros_tensor,
                     'token_ep_TU': zeros_tensor,
-                    'token_pe_TU': zeros_tensor,
+                    'token_pe_TU': -token_log_probs[ind],
                     'token_ep_MKL': zeros_tensor,
-                    'token_pe_MKL': zeros_tensor,
+                    'token_pe_MKL': token_scokes_mkl[ind],
                 }
 
                 zero_tensor = zeros_tensor.sum()
@@ -350,14 +349,15 @@ class DistillationTask(TranslationTask):
         """
         from fairseq import models
         model = models.build_model(args, self)
-        # if args.init_from_model is not None:
-        #     if self.ensemble:
-        #         state_dict = self.ensemble[self.init_from_model].state_dict()
-        #         if not model.decoder.share_input_output_embed:
-        #             state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
-        #         model.load_state_dict(state_dict, strict=False)
-        #     else:
-        #         print('Warning: ensemble_paths was empty and init_from_model is not None. Parameters were not overwritten')
+        #TODO CHECK - THEN UNCOMMENT
+        if args.init_from_model is not None:
+            if self.ensemble:
+                state_dict = self.ensemble[self.init_from_model].state_dict()
+                if not model.decoder.share_input_output_embed:
+                    state_dict['decoder.embed_out'] = state_dict['decoder.embed_tokens.weight']
+                model.load_state_dict(state_dict, strict=False)
+            else:
+                print('Warning: ensemble_paths was empty and init_from_model is not None. Parameters were not overwritten')
 
         if self.freeze_weights_until is not None and self.freeze_weights_until > 0:
             freeze_module_params(model.encoder)
