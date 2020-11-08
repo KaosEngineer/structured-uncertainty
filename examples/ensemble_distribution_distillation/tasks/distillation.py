@@ -11,6 +11,7 @@ from fairseq.tasks import register_task
 from fairseq.tasks.translation import TranslationTask
 from fairseq.uncertainty import compute_token_dirichlet_uncertainties, compute_sequence_dirichlet_uncertainties
 
+EPS=1e-10
 
 @register_task('distillation')
 class DistillationTask(TranslationTask):
@@ -20,7 +21,7 @@ class DistillationTask(TranslationTask):
         parser.add_argument('--ensemble-paths', help='Paths to ensemble models for distillation')
         parser.add_argument('--anneal-start', type=int, help='First update from which to start temperature annealing')
         parser.add_argument('--anneal-end', type=int, help='Last update for annealing')
-        parser.add_argument('--init-from-model', type=int, help='Model index in ensemble_paths to use for initialization')
+        parser.add_argument('--init-from-model', type=int, default=None, help='Model index in ensemble_paths to use for initialization')
         parser.add_argument('--freeze-weights-until', type=int, help='Freeze encoder/decoder weights until a given step')
         parser.add_argument('--init-temp', type=float, default=1)
         parser.add_argument('--final-temp', type=float, default=1)
@@ -190,7 +191,8 @@ class DistillationTask(TranslationTask):
 
     @torch.no_grad()
     def inference_step(self, generator, models, sample, prefix_tokens=None):
-        hypos_sample = generator.generate(models, sample, prefix_tokens=prefix_tokens)
+        with torch.no_grad():
+            hypos_sample = generator.generate(models, sample, prefix_tokens=prefix_tokens)
 
         if self.compute_uncertainty:
             # compute uncertainties
@@ -208,6 +210,9 @@ class DistillationTask(TranslationTask):
         prev_output = collate_tokens([out['tokens'] for sent in hypos for out in sent[:self.args.nbest]],
                                      eos_idx=self.tgt_dict.eos(), pad_idx=self.tgt_dict.pad(), move_eos_to_beginning=True)
 
+        print("TOKENS", tokens)
+        print("PREV_TOKENS", prev_output)
+
         src_tokens = sample['net_input']['src_tokens']
         src_lengths = sample['net_input']['src_lengths']
         prev_tokens = sample['net_input']['prev_output_tokens']
@@ -216,12 +221,14 @@ class DistillationTask(TranslationTask):
         sample['net_input']['src_lengths'] = torch.repeat_interleave(sample['net_input']['src_lengths'], self.args.nbest, dim=0)
         sample['net_input']['prev_output_tokens'] = prev_output
 
+
         net_output = model(**sample['net_input'])
 
         sample['net_input']['src_tokens'] = src_tokens
         sample['net_input']['src_lengths'] = src_lengths
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
+        #TODO FIX +1 TO ALPHAS ISSUE
         dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func)
         concentrations = concentrations.unsqueeze(2)
 
@@ -264,7 +271,6 @@ class DistillationTask(TranslationTask):
                     'token_pe_TU': zeros_tensor,
                     'token_ep_MKL': zeros_tensor,
                     'token_pe_MKL': zeros_tensor,
-
                 }
 
                 zero_tensor = zeros_tensor.sum()
@@ -357,10 +363,11 @@ class DistillationTask(TranslationTask):
                     raise NotImplementedError()
 
                 logits = net_output[0]
+                #TODO CHECK THAT THIS DOESN'T CAUSE ISSUES...
                 unnormalized_probs = parametrization_func(logits.float()) + model_offset
                 probs = unnormalized_probs / unnormalized_probs.sum(dim=-1, keepdim=True)
                 # add small constants for numerical stability
-                probs = probs * (1 - 1e-8) + 1e-8 * (1 / probs.size(-1))
+                probs = probs * (1 - EPS) + EPS * (1.0 / probs.size(-1))
                 if log_probs:
                     return probs.log()
                 else:

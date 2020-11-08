@@ -1,7 +1,17 @@
 import torch
 
+EPS = 1e-10
+
 
 def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
+    """
+
+    :param stacked_lprobs:
+    :param enscores:
+    :param step:
+    :param decode:
+    :return:
+    """
     dim = len(stacked_lprobs.size()) - 1
     esz = torch.tensor(stacked_lprobs.size()[0], dtype=torch.float32)
     probs = torch.exp(stacked_lprobs)
@@ -65,6 +75,13 @@ def token_uncertainties(stacked_lprobs, enscores, step, decode=True):
 
 
 def seq_uncertainties(eos_enscores, prex_eos_scores, step):
+    """
+
+    :param eos_enscores:
+    :param prex_eos_scores:
+    :param step:
+    :return:
+    """
     esz = torch.tensor(eos_enscores.size(0), dtype=torch.float32)
     prex_total_unc = -prex_eos_scores[:, step]
     step = torch.tensor(step, dtype=torch.float32)
@@ -72,13 +89,10 @@ def seq_uncertainties(eos_enscores, prex_eos_scores, step):
     eoe_ub = -torch.mean(eos_enscores, dim=0)
     expr_total_unc = -(torch.logsumexp(eos_enscores, dim=0) - torch.log(esz))
 
-    expr_var = torch.var(torch.exp(eos_enscores/(step + 1))+1e-10, dim=0, unbiased=False)
-    expr_logvar = torch.var(eos_enscores / (step + 1)+1e-10, dim=0, unbiased=False)
-    expr_varcombo = -(1.0 - expr_var / (1e-10+torch.exp(-expr_total_unc / (step + 1))))
-    expr_logcombo = -(1 - expr_logvar/(1e-10+torch.mean(eos_enscores / (step + 1), dim=0)))
-
-
-
+    expr_var = torch.var(torch.exp(eos_enscores / (step + 1)) + EPS, dim=0, unbiased=False)
+    expr_logvar = torch.var(eos_enscores / (step + 1) + EPS, dim=0, unbiased=False)
+    expr_varcombo = -(1.0 - expr_var / (EPS + torch.exp(-expr_total_unc / (step + 1))))
+    expr_logcombo = -(1 - expr_logvar / (EPS + torch.mean(eos_enscores / (step + 1), dim=0)))
 
     eoe_ub /= (step + 1)
     prex_total_unc /= (step + 1)
@@ -91,6 +105,11 @@ def seq_uncertainties(eos_enscores, prex_eos_scores, step):
 
 
 def token_aep_uncertainty(pos_enscores):
+    """
+
+    :param pos_enscores:
+    :return:
+    """
     esz = torch.tensor(pos_enscores.size(0), dtype=torch.float32)
     eoe_ub = - torch.mean(pos_enscores, dim=0)
     prex_pos_scores = -(torch.logsumexp(pos_enscores, dim=0) - torch.log(esz))
@@ -103,36 +122,55 @@ def token_aep_uncertainty(pos_enscores):
     return expr_pos_scores, eoe_ub, expr_pos_mkl, prex_pos_scores, prex_pos_mkl
 
 
-EPS = 1e-8
-
-
 def entropy(probs, dim: int = -1):
     return -(probs * (probs + EPS).log()).sum(dim=dim)
 
 
-def compute_token_dirichlet_uncertainties(dirichlet_params, concentrations, expected_dirichlet):
+def compute_token_dirichlet_uncertainties(dirichlet_params, precisions, expected_dirichlet):
+    """
+    Function which computes token-level measures of uncertainty for Dirichlet model.
+
+    :param dirichlet_params:  Tensor of size [batch_size, seq_len, vocab_size] of Dirichlet concentration parameters.
+    :param precisions: Tensor of size [batch_size, seq_len, 1] of Dirichlet Precisions
+    :param expected_dirichlet: Tensor of size [batch_size, seq_len, vocab_size] of probablities of expected categorical under Dirichlet.
+    :return: Tensors of token level uncertainties of size [batch_size, seq_len]
+    """
     batch_size, num_tokens, vocab_size = dirichlet_params.size()
 
     entropy_of_expected = entropy(expected_dirichlet)
     assert (entropy_of_expected >= 0).all()
-    expected_entropy = (-expected_dirichlet * (torch.digamma(dirichlet_params + 1) - torch.digamma(concentrations + 1))).sum(dim=-1)
+    expected_entropy = (
+            -expected_dirichlet * (torch.digamma(dirichlet_params + 1) - torch.digamma(precisions + 1))).sum(
+        dim=-1)
     assert (expected_entropy >= -1e-3).all()
 
     mutual_information = entropy_of_expected - expected_entropy
     assert (mutual_information >= -1e-3).all()
-    epkl = (vocab_size - 1) / concentrations.squeeze(2)
+    epkl = (vocab_size - 1) / precisions.squeeze(2)
     assert (epkl >= 0).all()
-    mkl = (-expected_dirichlet * (torch.digamma(dirichlet_params + EPS) - torch.digamma(concentrations + EPS))).sum(
+    mkl = (-expected_dirichlet * (torch.digamma(dirichlet_params + EPS) - torch.digamma(precisions + EPS))).sum(
         dim=-1) - entropy_of_expected
     assert (mkl >= 0).all()
 
     return entropy_of_expected, expected_entropy, mutual_information, epkl, mkl
 
 
-def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, log_expected_probs, predict_inds, mask, num_tokens):
-    unsqueezed_inds = predict_inds.unsqueeze(-1)
+def compute_sequence_dirichlet_uncertainties(dirichlet_params, precisions, log_expected_probs, predict_inds, mask,
+                                             num_tokens):
+    """
+
+    :param dirichlet_params:  Tensor of size [batch_size, seq_len, vocab_size] of Dirichlet concentration parameters.
+    :param precisions: Tensor of size [batch_size, seq_len, 1] of Dirichlet Precisions
+    :param log_expected_probs:  Tensor of size [batch_size, seq_len, vocab_size] of log-probablities of expected categorical under Dirichlet.
+    :param predict_inds: Tensor of size [batch_size, seq_len] of token ids
+    :param mask:  Tensor of size [batch_size, seq_len] of masked token ids
+    :param num_tokens:  Tensor of size [batch_size] of masked token ids
+    :return:
+    """
+    unsqueezed_inds = predict_inds.unsqueeze(-1) # now [batch_size, seq_len, 1]
 
     token_log_probs = log_expected_probs.gather(-1, unsqueezed_inds).squeeze(2)
+    # token_log_probs now [batch_size, seq_len]
     if mask.any():
         token_log_probs.masked_fill(mask, 0)
 
@@ -140,11 +178,12 @@ def compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations, l
     scores = -log_probs / num_tokens
     # scores >=0
 
-    token_scores_mkl = (torch.digamma(concentrations + EPS) - torch.digamma(dirichlet_params.gather(-1, unsqueezed_inds) + EPS)
+    token_scores_mkl = (torch.digamma(precisions + EPS) - torch.digamma(
+        dirichlet_params.gather(-1, unsqueezed_inds) + EPS)
                         ).squeeze(2) + token_log_probs
 
     if mask.any():
         token_scores_mkl.masked_fill(mask, 0)
 
-    scores_mkl = token_scores_mkl.sum(1) / num_tokens
+    scores_mkl = token_scores_mkl.sum(dim=1) / num_tokens
     return log_probs, scores, scores_mkl

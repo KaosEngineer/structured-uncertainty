@@ -43,7 +43,9 @@ def load_uncertainties(path, n_best=5, beam_width=5, beam_search=True):
                 'var': var,
                 'varcombo': varcombo,
                 'logvar': logvar,
-                'logcomvo': logcombo}
+                'logcomvo': logcombo
+                }
+    # }
     if os.path.exists(os.path.join(path, 'xbleu.txt')):
         xbleu = np.loadtxt(os.path.join(path, 'xbleu.txt'), dtype=np.float32)
         unc_dict['XBLEU'] = xbleu
