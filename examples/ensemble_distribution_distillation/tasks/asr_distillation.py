@@ -38,6 +38,7 @@ class ASRDistillationTask(SpeechRecognitionTask):
         self.anneal_start = args.anneal_start
         self.anneal_end = args.anneal_end
 
+        self.model_offset = args.model_offset
         self.init_temp = args.init_temp
         self.final_temp = args.final_temp
         self.temp = args.init_temp
@@ -217,7 +218,7 @@ class ASRDistillationTask(SpeechRecognitionTask):
         sample['net_input']['src_lengths'] = src_lengths
         sample['net_input']['prev_output_tokens'] = prev_tokens
 
-        dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func)
+        dirichlet_params, concentrations = get_dirichlet_parameters(model, net_output, self.parametrization_func,add_to_alphas=self.model_offset)
         concentrations = concentrations.unsqueeze(2)
 
         normalized_probs = model.get_normalized_probs(net_output, log_probs=False)
@@ -279,7 +280,11 @@ class ASRDistillationTask(SpeechRecognitionTask):
                     'ep_entropy_of_expected': zero_tensor,
                     'ep_mutual_information': zero_tensor,
                     'ep_EPKL': zero_tensor,
-                    'ep_MKL': zero_tensor
+                    'ep_MKL': zero_tensor,
+                    'var': zero_tensor,
+                    'combo': zero_tensor,
+                    'logvar': zero_tensor,
+                    'logcombo': zero_tensor
                 }
 
     @torch.no_grad()

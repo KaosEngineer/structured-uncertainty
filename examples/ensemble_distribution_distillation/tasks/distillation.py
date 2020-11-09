@@ -289,21 +289,16 @@ class DistillationTask(TranslationTask):
                     'pe_mutual_information': mutual_information[ind].sum() / num_of_tokens[ind],
                     'pe_EPKL': epkl[ind].sum() / num_of_tokens[ind],
                     'pe_sTU': scores[ind],
-
                     'ep_sTU': zero_tensor,
                     'sDU': zero_tensor,
                     'ep_sMKL': zero_tensor,
-
                     'pe_sMKL': scores_mkl[ind],
                     'log-prob': log_probs[ind],
-
                     'ep_entropy_of_expected': zero_tensor,
                     'ep_mutual_information': zero_tensor,
                     'ep_EPKL': zero_tensor,
                     'ep_MKL': zero_tensor,
-
                     'pe_MKL': mkl[ind].sum() / num_of_tokens[ind],
-
                     'var': zero_tensor,
                     'combo': zero_tensor,
                     'logvar': zero_tensor,
