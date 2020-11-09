@@ -236,7 +236,7 @@ class ASRDistillationTask(SpeechRecognitionTask):
             epkl.masked_fill_(mask, 0)
             mkl.masked_fill_(mask, 0)
 
-        log_probs, scores, scores_mkl = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
+        log_probs, scores, scores_mkl, token_log_probs, token_scokes_mkl  = compute_sequence_dirichlet_uncertainties(dirichlet_params, concentrations,
                                                                                  normalized_logprobs, tokens, mask, num_of_tokens)
 
         for i, sent in enumerate(hypos):
@@ -257,9 +257,9 @@ class ASRDistillationTask(SpeechRecognitionTask):
                     'ep_MKL': zeros_tensor,
                     'token_DU': zeros_tensor,
                     'token_ep_TU': zeros_tensor,
-                    'token_pe_TU': zeros_tensor,
+                    'token_pe_TU': -token_log_probs[ind],
                     'token_ep_MKL': zeros_tensor,
-                    'token_pe_MKL': zeros_tensor,
+                    'token_pe_MKL': token_scokes_mkl[ind],
 
                 }
 
