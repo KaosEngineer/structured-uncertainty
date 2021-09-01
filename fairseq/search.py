@@ -78,7 +78,7 @@ class BeamSearch(Search):
             ),
             out=(self.scores_buf, self.indices_buf),
         )
-        torch.div(self.indices_buf, vocab_size, out=self.beams_buf)
+        torch.floor_divide(self.indices_buf, vocab_size, out=self.beams_buf)
         self.indices_buf.fmod_(vocab_size)
         return self.scores_buf, self.indices_buf, self.beams_buf
 
@@ -134,7 +134,7 @@ class EnsembleBeamSearch(BeamSearch):
         en_indicies = self.indices_buf.unsqueeze(0).repeat(esz, 1, 1)
         self.scores_buf = stacked_lprobs.view(esz, bsz, -1).gather(index=en_indicies, dim=2)
 
-        torch.div(self.indices_buf, vocab_size, out=self.beams_buf)
+        torch.floor_divide(self.indices_buf, vocab_size, out=self.beams_buf)
         self.indices_buf.fmod_(vocab_size)
         return scores, self.scores_buf, self.indices_buf, self.beams_buf
 
@@ -190,7 +190,7 @@ class EnsembleBeamSearch(BeamSearch):
         en_indicies = self.indices_buf.unsqueeze(0).repeat(esz, 1, 1)
         enscores = stacked_lprobs.view(esz, bsz, -1).gather(index=en_indicies, dim=2)
 
-        torch.div(self.indices_buf, vocab_size, out=self.beams_buf)
+        torch.floor_divide(self.indices_buf, vocab_size, out=self.beams_buf)
         self.indices_buf.fmod_(vocab_size)
         return self.scores_buf, enscores, self.indices_buf, self.beams_buf
 
